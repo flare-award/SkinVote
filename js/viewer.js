@@ -31,7 +31,8 @@ export function resetViewerPose(viewer, zoom = DEFAULT_ZOOM) {
     viewer.resetCameraPose();
   }
   if (viewer.controls) {
-    viewer.controls.enablePan = false;
+    // Pan (ПКМ) — только для интерактивных вьюеров; у thumbnail-рендерера controls отключены.
+    viewer.controls.enablePan = viewer.controls.enabled !== false;
     viewer.controls.enableRotate = true;
     viewer.controls.enableZoom = true;
     viewer.controls.reset();
@@ -52,9 +53,12 @@ export function createAttachedViewer(canvas, { controls = true, zoom = DEFAULT_Z
 
   applyLook(viewer);
   if (viewer.controls) {
-    viewer.controls.enablePan = false;
+    viewer.controls.enablePan = controls;
     viewer.controls.saveState();
   }
+
+  const onContextMenu = (event) => event.preventDefault();
+  if (controls) canvas.addEventListener("contextmenu", onContextMenu);
 
   const ro = new ResizeObserver((entries) => {
     const entry = entries[0];
@@ -83,6 +87,7 @@ export function createAttachedViewer(canvas, { controls = true, zoom = DEFAULT_Z
     },
     dispose() {
       ro.disconnect();
+      canvas.removeEventListener("contextmenu", onContextMenu);
       viewer.dispose();
     },
   };

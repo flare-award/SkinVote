@@ -85,7 +85,7 @@ export async function inspectSkinFile(entry) {
         fileHandle: entry.fileHandle || null,
         dirHandle: entry.dirHandle || null,
         model: "wide",
-        ratings: { red: null, blue: null, logo: null, lenses: null },
+        ratings: { red: null, blue: null, logoFront: null, logoBack: null, lenses: null },
         thumb: null,
       },
     };

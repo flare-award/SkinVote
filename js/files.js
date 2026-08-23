@@ -233,30 +233,15 @@ export function filesFromInput(fileList) {
 }
 
 export async function revealSkin(skin) {
-  if (supportsFsAccess() && skin.fileHandle) {
-    try {
-      await window.showOpenFilePicker({
-        multiple: false,
-        startIn: skin.fileHandle,
-        types: [
-          {
-            description: "Minecraft skins",
-            accept: { "image/png": [".png"] },
-          },
-        ],
-      });
-      return { mode: "picker" };
-    } catch (error) {
-      if (error && error.name === "AbortError") return { mode: "cancelled" };
-    }
-  }
-
-  if (supportsDirPicker() && skin.dirHandle) {
-    try {
-      await window.showDirectoryPicker({ startIn: skin.dirHandle });
-      return { mode: "folder" };
-    } catch (error) {
-      if (error && error.name === "AbortError") return { mode: "cancelled" };
+  if (supportsDirPicker()) {
+    const startHandles = [skin.fileHandle, skin.dirHandle].filter(Boolean);
+    for (const startIn of startHandles) {
+      try {
+        await window.showDirectoryPicker({ startIn });
+        return { mode: "folder" };
+      } catch (error) {
+        if (error && error.name === "AbortError") return { mode: "cancelled" };
+      }
     }
   }
 

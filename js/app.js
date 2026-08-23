@@ -27,6 +27,7 @@ const state = {
   order: [],
   index: 0,
   screen: "upload",
+  sortKey: "total",
 };
 
 const els = {
@@ -64,12 +65,14 @@ const els = {
   dialog: document.getElementById("reveal-dialog"),
   revealPath: document.getElementById("reveal-path"),
   btnRevealPicker: document.getElementById("btn-reveal-picker"),
+  boardSort: document.getElementById("board-sort"),
   btnBackRate: document.getElementById("btn-back-rate"),
   btnNewSession: document.getElementById("btn-new-session"),
 };
 
 let rateHandle = null;
 const podiumHandles = [];
+let podiumRenderToken = 0;
 let pendingReveal = null;
 let toastTimer = 0;
 
@@ -331,13 +334,21 @@ async function goNext() {
   await openLeaderboard();
 }
 
-function rankedSkins() {
+function rankedSkins(sortKey = state.sortKey) {
   return [...state.skins]
-    .map((skin) => ({ skin, score: average(skin.ratings) ?? -1 }))
-    .sort((a, b) => b.score - a.score || a.skin.name.localeCompare(b.skin.name, "ru"));
+    .map((skin) => {
+      const score = average(skin.ratings) ?? -1;
+      const sortScore = sortKey === "total" || score < 0 ? score : (skin.ratings[sortKey] ?? -1);
+      return { skin, score, sortScore };
+    })
+    .sort((a, b) => {
+      if (sortKey === "total") return b.score - a.score || a.skin.name.localeCompare(b.skin.name, "ru");
+      return b.sortScore - a.sortScore || b.score - a.score || a.skin.name.localeCompare(b.skin.name, "ru");
+    });
 }
 
 function disposePodium() {
+  podiumRenderToken += 1;
   while (podiumHandles.length) {
     const handle = podiumHandles.pop();
     handle.dispose();
@@ -350,10 +361,14 @@ async function openLeaderboard() {
   els.topbarMeta.textContent = `Оценено: ${state.skins.length}`;
   els.podium.innerHTML = `<div class="podium-empty">Готовим 3D-превью…</div>`;
   els.lbBody.replaceChildren();
+  els.boardSort.value = state.sortKey;
 
+  await Promise.all(state.skins.map((skin) => (skin.thumb ? skin.thumb : captureThumb(skin))));
+  await renderLeaderboard();
+}
+
+async function renderLeaderboard() {
   const ranked = rankedSkins();
-  await Promise.all(ranked.map(({ skin }) => (skin.thumb ? skin.thumb : captureThumb(skin))));
-
   renderTable(ranked);
   await renderPodium(ranked.slice(0, 3));
 }
@@ -399,6 +414,7 @@ function renderTable(ranked) {
 
 async function renderPodium(top) {
   disposePodium();
+  const renderToken = podiumRenderToken;
   els.podium.replaceChildren();
   if (!top.length) {
     els.podium.innerHTML = `<div class="podium-empty">Нет оценённых скинов</div>`;
@@ -407,6 +423,8 @@ async function renderPodium(top) {
 
   const labels = ["1 место", "2 место", "3 место"];
   for (let i = 0; i < 3; i += 1) {
+    if (renderToken !== podiumRenderToken) return;
+
     const card = document.createElement("article");
     card.className = `podium-card${i === 0 ? " is-first" : ""}`;
     card.dataset.place = String(i + 1);
@@ -427,7 +445,12 @@ async function renderPodium(top) {
     const canvas = card.querySelector("canvas");
     const handle = createAttachedViewer(canvas, { controls: true, zoom: 0.8 });
     podiumHandles.push(handle);
-    await handle.load(skin);
+    try {
+      await handle.load(skin);
+    } catch (error) {
+      if (renderToken !== podiumRenderToken) return;
+      throw error;
+    }
   }
 }
 
@@ -465,22 +488,16 @@ async function onReveal(skin) {
 
 async function revealFromDialog() {
   if (!pendingReveal) return;
-  if (supportsFsAccess() && pendingReveal.fileHandle) {
-    try {
-      await window.showOpenFilePicker({ startIn: pendingReveal.fileHandle, multiple: false });
-      els.dialog.close();
-      return;
-    } catch (error) {
-      if (error?.name === "AbortError") return;
-    }
-  }
-  if (supportsDirPicker() && pendingReveal.dirHandle) {
-    try {
-      await window.showDirectoryPicker({ startIn: pendingReveal.dirHandle });
-      els.dialog.close();
-      return;
-    } catch (error) {
-      if (error?.name === "AbortError") return;
+  if (supportsDirPicker()) {
+    const startHandles = [pendingReveal.fileHandle, pendingReveal.dirHandle].filter(Boolean);
+    for (const startIn of startHandles) {
+      try {
+        await window.showDirectoryPicker({ startIn });
+        els.dialog.close();
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+      }
     }
   }
   showToast("В этом браузере доступна только подсказка с путём к файлу");
@@ -502,6 +519,7 @@ function newSession() {
   clearAll();
   state.order = [];
   state.index = 0;
+  state.sortKey = "total";
   setScreen("upload");
 }
 
@@ -588,6 +606,10 @@ function bindRate() {
   els.btnNext.addEventListener("click", goNext);
   els.btnSlim.addEventListener("click", () => setModel("slim"));
   els.btnWide.addEventListener("click", () => setModel("wide"));
+  els.boardSort.addEventListener("change", async () => {
+    state.sortKey = els.boardSort.value;
+    await renderLeaderboard();
+  });
   els.btnBackRate.addEventListener("click", backToRatings);
   els.btnNewSession.addEventListener("click", newSession);
   els.btnRevealPicker.addEventListener("click", revealFromDialog);

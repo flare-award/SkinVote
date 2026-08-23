@@ -55,7 +55,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
   color: inherit;
 }
@@ -747,6 +748,42 @@ p {
   font-size: 2rem;
 }
 
+.sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.sort-control select {
+  min-height: 44px;
+  min-width: 190px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0 38px 0 16px;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%) calc(100% - 18px) 50% / 6px 6px no-repeat,
+    linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%) calc(100% - 13px) 50% / 6px 6px no-repeat,
+    var(--surface-high);
+  color: var(--ink);
+  font-weight: 700;
+  appearance: none;
+  cursor: pointer;
+}
+
+.sort-control select:hover,
+.sort-control select:focus-visible {
+  border-color: rgba(232, 195, 106, 0.42);
+  outline: none;
+}
+
+.sort-control option {
+  background: var(--surface-high);
+  color: var(--ink);
+}
+
 .board-layout {
   flex: 1;
   min-height: 0;
@@ -1043,5 +1080,14 @@ p {
   .board-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .sort-control {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sort-control select {
+    width: 100%;
   }
 }

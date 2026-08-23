@@ -28,10 +28,10 @@
   --ease-std: cubic-bezier(0.2, 0, 0, 1);
   --font: "Manrope", "Segoe UI", sans-serif;
   --display: "Outfit", "Manrope", sans-serif;
-  --red: #ff8b7a;
-  --blue-cat: #6cb6ff;
-  --logo: #e8c36a;
-  --lenses: #7ee0c4;
+  --red: #ff5252;
+  --blue-cat: #54a9ff;
+  --logo: #ecbf55;
+  --lenses: #66e0bd;
 }
 
 * {
@@ -577,17 +577,6 @@ p {
   height: 100%;
 }
 
-.stage-floor {
-  position: absolute;
-  left: 50%;
-  bottom: 10%;
-  width: 46%;
-  height: 28px;
-  transform: translateX(-50%);
-  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.45), transparent 70%);
-  pointer-events: none;
-}
-
 .viewer-hint {
   text-align: center;
   color: var(--muted);
@@ -655,7 +644,8 @@ p {
 
 .cat[data-key="red"] .swatch { background: var(--red); }
 .cat[data-key="blue"] .swatch { background: var(--blue-cat); }
-.cat[data-key="logo"] .swatch { background: var(--logo); }
+.cat[data-key="logoFront"] .swatch { background: var(--logo); }
+.cat[data-key="logoBack"] .swatch { background: var(--logo); }
 .cat[data-key="lenses"] .swatch { background: var(--lenses); }
 
 .cat-val {
@@ -696,8 +686,10 @@ p {
   background: var(--blue-cat);
   box-shadow: none;
 }
-.cat[data-key="logo"] .star.is-on,
-.cat[data-key="logo"] .star.is-preview {
+.cat[data-key="logoFront"] .star.is-on,
+.cat[data-key="logoFront"] .star.is-preview,
+.cat[data-key="logoBack"] .star.is-on,
+.cat[data-key="logoBack"] .star.is-preview {
   background: var(--logo);
   box-shadow: none;
 }

@@ -15,7 +15,8 @@ import { captureThumb, createAttachedViewer } from "./viewer.js";
 const CATEGORIES = [
   { key: "red", label: "Красный цвет" },
   { key: "blue", label: "Синий цвет" },
-  { key: "logo", label: "Лого" },
+  { key: "logoFront", label: "Лого спереди" },
+  { key: "logoBack", label: "Лого взади" },
   { key: "lenses", label: "Линзы" },
 ];
 
@@ -373,7 +374,8 @@ function renderTable(ranked) {
         <td class="score-strong">${formatScore(row.score < 0 ? null : row.score)}</td>
         <td>${row.skin.ratings.red ?? "—"}</td>
         <td>${row.skin.ratings.blue ?? "—"}</td>
-        <td>${row.skin.ratings.logo ?? "—"}</td>
+        <td>${row.skin.ratings.logoFront ?? "—"}</td>
+        <td>${row.skin.ratings.logoBack ?? "—"}</td>
         <td>${row.skin.ratings.lenses ?? "—"}</td>
         <td>
           <button type="button" class="icon-btn" aria-label="Открыть расположение файла" title="Открыть папку">

@@ -83,6 +83,8 @@ const els = {
   btnCopyPath: document.getElementById("btn-copy-path"),
   btnCopyDir: document.getElementById("btn-copy-dir"),
   boardSort: document.getElementById("board-sort"),
+  toggleFilters: document.getElementById("btn-toggle-filters"),
+  boardFilters: document.getElementById("board-filters"),
   btnExport: document.getElementById("btn-export"),
   btnBackRate: document.getElementById("btn-back-rate"),
   btnNewSession: document.getElementById("btn-new-session"),
@@ -112,11 +114,6 @@ const els = {
   detailName: document.getElementById("detail-name"),
   detailScore: document.getElementById("detail-score"),
   detailCategories: document.getElementById("detail-categories"),
-  detailNote: document.getElementById("detail-note"),
-  detailPath: document.getElementById("detail-path"),
-  detailDir: document.getElementById("detail-dir"),
-  btnDetailCopyPath: document.getElementById("btn-detail-copy-path"),
-  btnDetailCopyDir: document.getElementById("btn-detail-copy-dir"),
 };
 
 let rateHandle = null;
@@ -472,6 +469,14 @@ function matchesFilters(row) {
 function renderTableOnly() {
   const ranked = rankedSkins();
   renderTable(ranked.filter(matchesFilters), ranked);
+}
+
+// Показ/скрытие панели фильтров таблицы лидеров. Скрытое состояние хранится
+// только в атрибуте hidden — никаких пересозданий элементов и WebGL.
+function setFiltersVisible(visible) {
+  els.boardFilters.hidden = !visible;
+  els.toggleFilters.setAttribute("aria-expanded", String(visible));
+  els.toggleFilters.querySelector(".btn-label").textContent = visible ? "Скрыть фильтры" : "Фильтры";
 }
 
 function resetBoardFilters() {
@@ -878,8 +883,6 @@ async function openDetail(skin) {
   const score = average(skin.ratings);
   els.detailScore.textContent = skin.skipped ? "Пропущен" : formatScore(score);
   renderDetailCategories(skin);
-  els.detailNote.value = skin.note || "";
-  fillPathFields(revealSkin(skin), els.detailPath, els.detailDir);
 
   const hasFile = !!skin.url;
   els.detailCanvas.hidden = !hasFile;
@@ -936,7 +939,6 @@ async function copyText(text) {
 }
 
 function handleDetailClose() {
-  if (detailSkin) detailSkin.note = els.detailNote.value;
   detailRenderToken += 1;
   if (detailHandle) {
     detailHandle.dispose();
@@ -971,6 +973,7 @@ function newSession() {
   state.tiebreak = null;
   state.imported = false;
   resetBoardFilters();
+  setFiltersVisible(false);
   setScreen("upload");
 }
 
@@ -1178,6 +1181,7 @@ function loadImportedSession(session) {
   state.tiebreak = null;
   state.imported = true;
   resetBoardFilters();
+  setFiltersVisible(false);
   if (merged.matchedCount) {
     showToast(`Подключены локальные PNG: ${merged.matchedCount} из ${session.skins.length}`);
   }
@@ -1341,17 +1345,15 @@ function bindRate() {
     resetBoardFilters();
     renderTableOnly();
   });
+  els.toggleFilters.addEventListener("click", () => {
+    setFiltersVisible(els.boardFilters.hidden);
+  });
   els.btnBackRate.addEventListener("click", backToRatings);
   els.btnNewSession.addEventListener("click", newSession);
 
   // Путь к файлу: копирование без диалогов выбора.
   els.btnCopyPath.addEventListener("click", () => copyText(els.revealPath.textContent.trim()));
   els.btnCopyDir.addEventListener("click", () => copyText(els.revealDir.textContent.trim()));
-  els.btnDetailCopyPath.addEventListener("click", () => copyText(els.detailPath.textContent.trim()));
-  els.btnDetailCopyDir.addEventListener("click", () => copyText(els.detailDir.textContent.trim()));
-  els.detailNote.addEventListener("input", () => {
-    if (detailSkin) detailSkin.note = els.detailNote.value;
-  });
   els.detailDialog.addEventListener("close", handleDetailClose);
   els.detailDialog.addEventListener("click", (event) => {
     if (event.target === els.detailDialog) els.detailDialog.close();

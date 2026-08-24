@@ -203,6 +203,27 @@
                 <option value="lenses">Линзы</option>
               </select>
             </label>
+            <button
+              type="button"
+              class="btn btn-outlined"
+              id="btn-toggle-filters"
+              aria-expanded="false"
+              aria-controls="board-filters"
+            >
+              <span class="btn-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M4 5h16M7 12h10M10 19h4"
+                  />
+                </svg>
+              </span>
+              <span class="btn-label">Фильтры</span>
+            </button>
             <button type="button" class="btn btn-outlined" id="btn-export">
               <span class="btn-ico" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="18" height="18">
@@ -223,7 +244,7 @@
           </div>
         </div>
 
-        <div class="board-filters" aria-label="Фильтры таблицы лидеров">
+        <div id="board-filters" class="board-filters" aria-label="Фильтры таблицы лидеров" hidden>
           <label class="filter-field filter-search" for="board-search">
             <span class="filter-label">Поиск</span>
             <input type="search" id="board-search" placeholder="Поиск по имени…" autocomplete="off" />
@@ -444,23 +465,6 @@
             <section>
               <h4 class="detail-section-title">Разбивка по категориям</h4>
               <div id="detail-categories" class="detail-categories"></div>
-            </section>
-
-            <label class="detail-note" for="detail-note">
-              <span class="detail-section-title">Заметка</span>
-              <textarea id="detail-note" rows="5" maxlength="2000" placeholder="Добавьте заметку о скине…"></textarea>
-            </label>
-
-            <section class="detail-path-section">
-              <h4 class="detail-section-title">Расположение файла</h4>
-              <p class="path-label">Файл</p>
-              <p class="path-box" id="detail-path">—</p>
-              <p class="path-label">Папка</p>
-              <p class="path-box" id="detail-dir">—</p>
-              <div class="detail-path-actions">
-                <button type="button" class="btn btn-outlined" id="btn-detail-copy-dir">Копировать папку</button>
-                <button type="button" class="btn btn-outlined" id="btn-detail-copy-path">Копировать путь</button>
-              </div>
             </section>
           </aside>
         </div>

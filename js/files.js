@@ -39,11 +39,79 @@ async function measureImage(file) {
     const img = new Image();
     img.src = url;
     await img.decode();
-    return { width: img.naturalWidth, height: img.naturalHeight, previewUrl: url };
+    return { width: img.naturalWidth, height: img.naturalHeight, previewUrl: url, img };
   } catch (error) {
     URL.revokeObjectURL(url);
     throw error;
   }
+}
+
+// skinview3d использует эти четыре области для собственного auto-detect. Проверяем
+// не отдельный пиксель, а весь прямоугольник: так один случайный прозрачный пиксель
+// не зависит от того, какая именно раскраска у руки. Координаты заданы для 64×64
+// и масштабируются для HD-скинов тем же способом, что и в skinview3d.
+const MODEL_REGIONS = [
+  [50, 16, 2, 4],
+  [54, 20, 2, 12],
+  [42, 48, 2, 4],
+  [46, 52, 2, 12],
+];
+
+function regionPixels(ctx, region, sx, sy) {
+  const [x, y, width, height] = region;
+  return ctx.getImageData(
+    Math.floor(x * sx),
+    Math.floor(y * sy),
+    Math.floor(width * sx),
+    Math.floor(height * sy),
+  ).data;
+}
+
+function hasTransparency(ctx, region, sx, sy) {
+  const pixels = regionPixels(ctx, region, sx, sy);
+  for (let i = 3; i < pixels.length; i += 4) {
+    if (pixels[i] !== 255) return true;
+  }
+  return false;
+}
+
+function isOpaqueColor(ctx, region, sx, sy, red, green, blue) {
+  const pixels = regionPixels(ctx, region, sx, sy);
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i] !== red || pixels[i + 1] !== green || pixels[i + 2] !== blue || pixels[i + 3] !== 255) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Determine the arm model from a decoded skin image.
+ *
+ * The legacy 64×32 layout has no reliable slim/wide marker, so it deliberately
+ * stays wide. For square skins this mirrors skinview3d's calibrated
+ * loadSkin(..., { model: "auto-detect" }) heuristic, including its solid
+ * black/white fallback for templates whose marker column is filled instead of
+ * transparent.
+ */
+export function detectSkinModel(img, width, height) {
+  if (height * 2 === width) return "wide";
+  if (!img || width !== height || width < 64 || width % 64 !== 0) return "wide";
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return "wide";
+  ctx.drawImage(img, 0, 0, width, height);
+
+  const sx = width / 64;
+  const sy = height / 64;
+  const slim =
+    MODEL_REGIONS.some((region) => hasTransparency(ctx, region, sx, sy)) ||
+    MODEL_REGIONS.every((region) => isOpaqueColor(ctx, region, sx, sy, 0, 0, 0)) ||
+    MODEL_REGIONS.every((region) => isOpaqueColor(ctx, region, sx, sy, 255, 255, 255));
+  return slim ? "slim" : "wide";
 }
 
 export async function inspectSkinFile(entry) {
@@ -60,8 +128,10 @@ export async function inspectSkinFile(entry) {
     };
   }
 
+  let measured = null;
   try {
-    const { width, height, previewUrl } = await measureImage(file);
+    measured = await measureImage(file);
+    const { width, height, previewUrl, img } = measured;
     if (!isValidSkinSize(width, height)) {
       URL.revokeObjectURL(previewUrl);
       return {
@@ -84,13 +154,14 @@ export async function inspectSkinFile(entry) {
         height,
         fileHandle: entry.fileHandle || null,
         dirHandle: entry.dirHandle || null,
-        model: "wide",
+        model: detectSkinModel(img, width, height),
         ratings: { red: null, blue: null, logoFront: null, logoBack: null, lenses: null },
         thumb: null,
         skipped: false,
       },
     };
   } catch {
+    if (measured?.previewUrl) URL.revokeObjectURL(measured.previewUrl);
     return {
       ok: false,
       name,

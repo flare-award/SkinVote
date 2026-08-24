@@ -33,6 +33,12 @@ const state = {
   tiebreak: null,
   // Признак того, что данные загружены из JSON, а не оценены в этой сессии.
   imported: false,
+  filters: {
+    query: "",
+    minScore: null,
+    maxScore: null,
+    min: { red: 0, blue: 0, logoFront: 0, logoBack: 0, lenses: 0 },
+  },
 };
 
 const els = {
@@ -80,6 +86,15 @@ const els = {
   btnExport: document.getElementById("btn-export"),
   btnBackRate: document.getElementById("btn-back-rate"),
   btnNewSession: document.getElementById("btn-new-session"),
+  boardSearch: document.getElementById("board-search"),
+  boardMinScore: document.getElementById("board-min-score"),
+  boardMaxScore: document.getElementById("board-max-score"),
+  filterRed: document.getElementById("filter-red"),
+  filterBlue: document.getElementById("filter-blue"),
+  filterLogoFront: document.getElementById("filter-logo-front"),
+  filterLogoBack: document.getElementById("filter-logo-back"),
+  filterLenses: document.getElementById("filter-lenses"),
+  btnResetFilters: document.getElementById("btn-reset-filters"),
   // Tiebreaker
   tiebreakInfo: document.getElementById("tiebreak-info"),
   tiebreakLeft: document.getElementById("tiebreak-left"),
@@ -89,12 +104,28 @@ const els = {
   importDialog: document.getElementById("import-dialog"),
   importPreview: document.getElementById("import-preview"),
   btnImportConfirm: document.getElementById("btn-import-confirm"),
+  // Detail viewer
+  detailDialog: document.getElementById("detail-dialog"),
+  detailStage: document.getElementById("detail-stage"),
+  detailCanvas: document.getElementById("detail-canvas"),
+  detailPlaceholder: document.getElementById("detail-placeholder"),
+  detailName: document.getElementById("detail-name"),
+  detailScore: document.getElementById("detail-score"),
+  detailCategories: document.getElementById("detail-categories"),
+  detailNote: document.getElementById("detail-note"),
+  detailPath: document.getElementById("detail-path"),
+  detailDir: document.getElementById("detail-dir"),
+  btnDetailCopyPath: document.getElementById("btn-detail-copy-path"),
+  btnDetailCopyDir: document.getElementById("btn-detail-copy-dir"),
 };
 
 let rateHandle = null;
 const podiumHandles = [];
 let podiumRenderToken = 0;
 let toastTimer = 0;
+let detailHandle = null;
+let detailSkin = null;
+let detailRenderToken = 0;
 
 // Tiebreaker: два переиспользуемых вьюера (левый/правый) — всего 2 WebGL-контекста
 // на весь экран тейбрейкера, освобождаются после разрешения всех ничьих.
@@ -421,6 +452,57 @@ function rankedSkins(sortKey = state.sortKey) {
     });
 }
 
+function matchesFilters(row) {
+  const f = state.filters;
+  const query = f.query.trim().toLowerCase();
+  const name = String(row.skin.name || "").toLowerCase();
+  const relativePath = String(row.skin.relativePath || "").toLowerCase();
+  if (query && !name.includes(query) && !relativePath.includes(query)) return false;
+
+  const total = row.score < 0 ? null : row.score;
+  if (total == null) return false;
+  if (f.minScore != null && total < f.minScore) return false;
+  if (f.maxScore != null && total > f.maxScore) return false;
+  for (const key of ["red", "blue", "logoFront", "logoBack", "lenses"]) {
+    if (f.min[key] > 0 && (row.skin.ratings[key] ?? 0) < f.min[key]) return false;
+  }
+  return true;
+}
+
+function renderTableOnly() {
+  const ranked = rankedSkins();
+  renderTable(ranked.filter(matchesFilters), ranked);
+}
+
+function resetBoardFilters() {
+  state.filters = {
+    query: "",
+    minScore: null,
+    maxScore: null,
+    min: { red: 0, blue: 0, logoFront: 0, logoBack: 0, lenses: 0 },
+  };
+  els.boardSearch.value = "";
+  els.boardMinScore.value = "";
+  els.boardMaxScore.value = "";
+  els.filterRed.value = "0";
+  els.filterBlue.value = "0";
+  els.filterLogoFront.value = "0";
+  els.filterLogoBack.value = "0";
+  els.filterLenses.value = "0";
+}
+
+function syncBoardFilters() {
+  const f = state.filters;
+  els.boardSearch.value = f.query;
+  els.boardMinScore.value = f.minScore == null ? "" : String(f.minScore);
+  els.boardMaxScore.value = f.maxScore == null ? "" : String(f.maxScore);
+  els.filterRed.value = String(f.min.red);
+  els.filterBlue.value = String(f.min.blue);
+  els.filterLogoFront.value = String(f.min.logoFront);
+  els.filterLogoBack.value = String(f.min.logoBack);
+  els.filterLenses.value = String(f.min.lenses);
+}
+
 function disposePodium() {
   podiumRenderToken += 1;
   while (podiumHandles.length) {
@@ -606,6 +688,7 @@ async function openLeaderboard() {
   els.podium.innerHTML = `<div class="podium-empty">Готовим 3D-превью…</div>`;
   els.lbBody.replaceChildren();
   els.boardSort.value = state.sortKey;
+  syncBoardFilters();
 
   const activeSkins = state.skins.filter((skin) => !skin.skipped);
   await Promise.all(activeSkins.map((skin) => (skin.thumb ? skin.thumb : captureThumb(skin))));
@@ -614,21 +697,32 @@ async function openLeaderboard() {
 
 async function renderLeaderboard() {
   const ranked = rankedSkins();
-  renderTable(ranked);
+  renderTable(ranked.filter(matchesFilters), ranked);
   await renderPodium(ranked.slice(0, 3));
 }
 
-function renderTable(ranked) {
+function renderTable(ranked, allRanked = ranked) {
+  if (!ranked.length) {
+    const empty = document.createElement("tr");
+    empty.innerHTML = `<td colspan="9" class="table-empty">Ничего не найдено по фильтрам</td>`;
+    els.lbBody.replaceChildren(empty);
+    return;
+  }
+
+  const places = new Map(allRanked.map((row, index) => [row.skin.id, index + 1]));
   els.lbBody.replaceChildren(
     ...ranked.map((row, i) => {
-      const place = i + 1;
+      const place = places.get(row.skin.id) ?? i + 1;
       const tr = document.createElement("tr");
       const badgeClass = place === 1 ? "gold" : place === 2 ? "silver" : place === 3 ? "bronze" : "";
       tr.innerHTML = `
         <td><span class="place-badge ${badgeClass}">${place}</span></td>
         <td>
-          <div class="thumb-wrap" data-tip="${escapeAttr(row.skin.relativePath)}">
-            <img alt="" />
+          <div class="skin-cell">
+            <div class="thumb-wrap" data-tip="${escapeAttr(row.skin.relativePath)}" role="button" tabindex="0" aria-label="Открыть подробный просмотр">
+              <img alt="" />
+            </div>
+            <span class="skin-name" role="button" tabindex="0"></span>
           </div>
         </td>
         <td class="score-strong">${formatScore(row.score < 0 ? null : row.score)}</td>
@@ -649,8 +743,19 @@ function renderTable(ranked) {
       img.src = row.skin.thumb || "";
       img.alt = row.skin.name;
       const wrap = tr.querySelector(".thumb-wrap");
+      const name = tr.querySelector(".skin-name");
+      const openDetailFromKeyboard = (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        void openDetail(row.skin);
+      };
+      name.textContent = row.skin.name;
       wrap.addEventListener("pointerenter", (event) => showTip(event, row.skin.relativePath));
       wrap.addEventListener("pointerleave", hideTip);
+      wrap.addEventListener("click", () => void openDetail(row.skin));
+      wrap.addEventListener("keydown", openDetailFromKeyboard);
+      name.addEventListener("click", () => void openDetail(row.skin));
+      name.addEventListener("keydown", openDetailFromKeyboard);
       tr.querySelector(".icon-btn").addEventListener("click", () => onReveal(row.skin));
       return tr;
     }),
@@ -735,15 +840,74 @@ function hideTip() {
   tipNode = null;
 }
 
+function fillPathFields(result, pathNode, dirNode) {
+  pathNode.textContent = result.path || "—";
+  dirNode.textContent = result.dirPath || result.path || "—";
+}
+
 function onReveal(skin) {
   // Из браузера нельзя открыть системный проводник и выделить файл — показываем
   // известный путь к файлу и папке, чтобы пользователь скопировал его и открыл
   // папку вручную. Никаких диалогов выбора файлов/папок.
   const result = revealSkin(skin);
-  els.revealPath.textContent = result.path || "—";
-  els.revealDir.textContent = result.dirPath || result.path || "—";
+  fillPathFields(result, els.revealPath, els.revealDir);
   if (typeof els.dialog.showModal === "function") els.dialog.showModal();
   else showToast(result.path || result.dirPath);
+}
+
+function renderDetailCategories(skin) {
+  els.detailCategories.replaceChildren(
+    ...CATEGORIES.map((cat) => {
+      const row = document.createElement("div");
+      row.className = "detail-category";
+      row.innerHTML = `<span><i class="swatch"></i>${cat.label}</span><strong></strong>`;
+      row.querySelector("strong").textContent = skin.ratings[cat.key] ?? "—";
+      return row;
+    }),
+  );
+}
+
+async function openDetail(skin) {
+  if (!skin) return;
+  if (els.detailDialog.open) els.detailDialog.close();
+
+  detailRenderToken += 1;
+  const renderToken = detailRenderToken;
+  detailSkin = skin;
+  els.detailName.textContent = skin.name;
+  const score = average(skin.ratings);
+  els.detailScore.textContent = skin.skipped ? "Пропущен" : formatScore(score);
+  renderDetailCategories(skin);
+  els.detailNote.value = skin.note || "";
+  fillPathFields(revealSkin(skin), els.detailPath, els.detailDir);
+
+  const hasFile = !!skin.url;
+  els.detailCanvas.hidden = !hasFile;
+  els.detailPlaceholder.hidden = hasFile;
+  if (!hasFile) {
+    els.detailPlaceholder.src = skin.thumb || thumbPlaceholder();
+  }
+
+  if (typeof els.detailDialog.showModal !== "function") {
+    showToast(hasFile ? "Подробный просмотр недоступен" : skin.name);
+    return;
+  }
+  els.detailDialog.showModal();
+  if (!hasFile) return;
+
+  try {
+    const handle = createAttachedViewer(els.detailCanvas, { controls: true, zoom: 0.85 });
+    if (renderToken !== detailRenderToken || detailSkin !== skin || !els.detailDialog.open) {
+      handle.dispose();
+      return;
+    }
+    detailHandle = handle;
+    await handle.load(skin);
+  } catch {
+    if (renderToken === detailRenderToken && detailSkin === skin) {
+      showToast("Не удалось открыть 3D-просмотр");
+    }
+  }
 }
 
 async function copyText(text) {
@@ -771,6 +935,18 @@ async function copyText(text) {
   showToast(ok ? "Скопировано в буфер обмена" : "Не удалось скопировать");
 }
 
+function handleDetailClose() {
+  if (detailSkin) detailSkin.note = els.detailNote.value;
+  detailRenderToken += 1;
+  if (detailHandle) {
+    detailHandle.dispose();
+    detailHandle = null;
+  }
+  detailSkin = null;
+  els.detailCanvas.hidden = false;
+  els.detailPlaceholder.hidden = true;
+}
+
 function backToRatings() {
   disposePodium();
   setScreen("rate");
@@ -779,6 +955,8 @@ function backToRatings() {
 }
 
 function newSession() {
+  if (els.detailDialog.open) els.detailDialog.close();
+  else if (detailHandle || detailSkin) handleDetailClose();
   disposePodium();
   disposeTiebreakViewers();
   disposeThumbEngine();
@@ -792,6 +970,7 @@ function newSession() {
   state.sortKey = "total";
   state.tiebreak = null;
   state.imported = false;
+  resetBoardFilters();
   setScreen("upload");
 }
 
@@ -826,6 +1005,7 @@ function exportRatings() {
         relativePath: s.relativePath,
         model: s.model === "slim" ? "slim" : "wide",
         ratings,
+        note: s.note || "",
         skipped: !!s.skipped,
       };
     }),
@@ -881,6 +1061,7 @@ function parseSession(text) {
       model,
       ratings,
       thumb: null,
+      note: typeof raw.note === "string" ? raw.note : "",
       skipped,
       imported: true,
     };
@@ -899,16 +1080,87 @@ function formatSessionDate(iso) {
   return d.toLocaleString("ru-RU", { dateStyle: "medium", timeStyle: "short" });
 }
 
+function normalizeSkinPath(value) {
+  return String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/")
+    .toLowerCase();
+}
+
+function skinFileName(value) {
+  const path = normalizeSkinPath(value);
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+function findImportedFileMatches(importedSkins, loadedSkins) {
+  const available = loadedSkins.filter((skin) => skin.file || skin.url);
+  const used = new Set();
+  const matches = new Map();
+
+  for (const importedSkin of importedSkins) {
+    const importedPath = normalizeSkinPath(importedSkin.relativePath);
+    const importedName = skinFileName(importedSkin.name || importedSkin.relativePath);
+    let candidates = available.filter(
+      (loadedSkin) => !used.has(loadedSkin.id) && normalizeSkinPath(loadedSkin.relativePath) === importedPath,
+    );
+    if (candidates.length !== 1) {
+      candidates = available.filter(
+        (loadedSkin) => !used.has(loadedSkin.id) && skinFileName(loadedSkin.name) === importedName,
+      );
+    }
+    if (candidates.length !== 1) continue;
+    const loadedSkin = candidates[0];
+    used.add(loadedSkin.id);
+    matches.set(importedSkin.id, loadedSkin);
+  }
+  return matches;
+}
+
+function mergeImportedFiles(session) {
+  const loadedSkins = state.skins;
+  const matches = findImportedFileMatches(session.skins, loadedSkins);
+  const matchedLoadedSkins = new Set(matches.values());
+  const mergedSkins = session.skins.map((importedSkin) => {
+    const loadedSkin = matches.get(importedSkin.id);
+    if (!loadedSkin) return importedSkin;
+    return {
+      ...importedSkin,
+      file: loadedSkin.file,
+      url: loadedSkin.url,
+      width: loadedSkin.width,
+      height: loadedSkin.height,
+      fileHandle: loadedSkin.fileHandle,
+      dirHandle: loadedSkin.dirHandle,
+      // JSON-модель, оценки и заметка имеют приоритет; превью создадим заново.
+      thumb: null,
+    };
+  });
+
+  loadedSkins.forEach((loadedSkin) => {
+    if (!matchedLoadedSkins.has(loadedSkin)) revokeSkin(loadedSkin);
+  });
+  return { skins: mergedSkins, matchedCount: matches.size };
+}
+
 function showImportPreview(session) {
   const total = session.skins.length;
   const rated = session.skins.filter((s) => !s.skipped).length;
   const skipped = total - rated;
   const sample = session.skins.slice(0, 4).map((s) => escapeAttr(s.name)).join(", ");
+  const matches = findImportedFileMatches(session.skins, state.skins).size;
+  const hasLoadedFiles = state.skins.some((skin) => skin.file || skin.url);
+  const previewHint = matches
+    ? `Будут подключены локальные PNG для ${matches} из ${total} скинов; для остальных останутся плейсхолдеры.`
+    : hasLoadedFiles
+      ? "Совпадений с уже загруженными PNG не найдено; для скинов будут показаны плейсхолдеры."
+      : "Если PNG не загружены, для скинов будут показаны плейсхолдеры вместо 3D-превью.";
   els.importPreview.innerHTML = `
     <p class="muted">Сессия от <b>${formatSessionDate(session.date)}</b></p>
     <p>Скинов в файле: <b>${total}</b>${rated !== total ? ` (оценено ${rated}, пропущено ${skipped})` : ""}</p>
     ${sample ? `<p class="muted" style="margin-top:8px">Например: ${sample}${total > 4 ? "…" : ""}</p>` : ""}
-    <p class="muted" style="margin-top:8px">Сразу откроется таблица лидеров. 3D-превью доступны только для скинов, чьи файлы сейчас загружены.</p>
+    <p class="muted" style="margin-top:8px">${previewHint}</p>
+    <p class="muted" style="margin-top:8px">Сразу откроется таблица лидеров.</p>
   `;
   if (typeof els.importDialog.showModal === "function") els.importDialog.showModal();
   else showToast(`Импорт: ${total} скинов`);
@@ -916,8 +1168,8 @@ function showImportPreview(session) {
 
 function loadImportedSession(session) {
   if (typeof els.importDialog.close === "function") els.importDialog.close();
-  state.skins.forEach(revokeSkin);
-  state.skins = session.skins;
+  const merged = mergeImportedFiles(session);
+  state.skins = merged.skins;
   state.rejected = [];
   state.skipped = 0;
   state.order = [];
@@ -925,6 +1177,10 @@ function loadImportedSession(session) {
   state.sortKey = "total";
   state.tiebreak = null;
   state.imported = true;
+  resetBoardFilters();
+  if (merged.matchedCount) {
+    showToast(`Подключены локальные PNG: ${merged.matchedCount} из ${session.skins.length}`);
+  }
   // Импортированные данные показываем сразу, без экрана оценки и тейбрейкера.
   openLeaderboard();
 }
@@ -1037,6 +1293,20 @@ function bindUpload() {
   });
 }
 
+function readScoreFilter(input) {
+  const raw = input.value.trim();
+  if (!raw) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return null;
+  return Math.min(10, Math.max(1, value));
+}
+
+function updateCategoryFilter(key, value) {
+  const number = Number(value);
+  state.filters.min[key] = Number.isFinite(number) ? Math.min(10, Math.max(0, number)) : 0;
+  renderTableOnly();
+}
+
 function bindRate() {
   buildCategories();
   els.btnPrev.addEventListener("click", goPrev);
@@ -1048,12 +1318,44 @@ function bindRate() {
     state.sortKey = els.boardSort.value;
     await renderLeaderboard();
   });
+  els.boardSearch.addEventListener("input", () => {
+    state.filters.query = els.boardSearch.value;
+    renderTableOnly();
+  });
+  [els.boardMinScore, els.boardMaxScore].forEach((input) => {
+    input.addEventListener("input", () => {
+      state.filters[input === els.boardMinScore ? "minScore" : "maxScore"] = readScoreFilter(input);
+      renderTableOnly();
+    });
+  });
+  [
+    [els.filterRed, "red"],
+    [els.filterBlue, "blue"],
+    [els.filterLogoFront, "logoFront"],
+    [els.filterLogoBack, "logoBack"],
+    [els.filterLenses, "lenses"],
+  ].forEach(([select, key]) => {
+    select.addEventListener("change", () => updateCategoryFilter(key, select.value));
+  });
+  els.btnResetFilters.addEventListener("click", () => {
+    resetBoardFilters();
+    renderTableOnly();
+  });
   els.btnBackRate.addEventListener("click", backToRatings);
   els.btnNewSession.addEventListener("click", newSession);
 
   // Путь к файлу: копирование без диалогов выбора.
   els.btnCopyPath.addEventListener("click", () => copyText(els.revealPath.textContent.trim()));
   els.btnCopyDir.addEventListener("click", () => copyText(els.revealDir.textContent.trim()));
+  els.btnDetailCopyPath.addEventListener("click", () => copyText(els.detailPath.textContent.trim()));
+  els.btnDetailCopyDir.addEventListener("click", () => copyText(els.detailDir.textContent.trim()));
+  els.detailNote.addEventListener("input", () => {
+    if (detailSkin) detailSkin.note = els.detailNote.value;
+  });
+  els.detailDialog.addEventListener("close", handleDetailClose);
+  els.detailDialog.addEventListener("click", (event) => {
+    if (event.target === els.detailDialog) els.detailDialog.close();
+  });
 
   // Экспорт оценок в JSON.
   els.btnExport.addEventListener("click", exportRatings);

@@ -233,22 +233,20 @@ export function filesFromInput(fileList) {
   }));
 }
 
-export async function revealSkin(skin) {
-  if (supportsDirPicker()) {
-    const startHandles = [skin.fileHandle, skin.dirHandle].filter(Boolean);
-    for (const startIn of startHandles) {
-      try {
-        await window.showDirectoryPicker({ startIn });
-        return { mode: "folder" };
-      } catch (error) {
-        if (error && error.name === "AbortError") return { mode: "cancelled" };
-      }
-    }
-  }
-
+// Из браузера нельзя программно открыть системный проводник и выделить там файл —
+// это ограничение веб-платформы. showDirectoryPicker — это диалог ВЫБОРА папки, а не
+// «открыть в проводнике», поэтому он здесь больше не используется. Вместо этого
+// возвращаем известный путь к файлу/папке, чтобы пользователь мог его скопировать.
+export function revealSkin(skin) {
+  const relativePath = skin?.relativePath || skin?.name || "";
+  const sep = relativePath.lastIndexOf("/");
+  const dirPath = sep >= 0 ? relativePath.slice(0, sep) : "";
   return {
-    mode: "fallback",
-    path: skin.relativePath || skin.name,
+    mode: "path",
+    path: relativePath || skin?.name || "",
+    // Папка: если есть вложенность — берём её, иначе показываем хотя бы имя файла.
+    dirPath: dirPath || relativePath || "",
+    name: skin?.name || "",
   };
 }
 

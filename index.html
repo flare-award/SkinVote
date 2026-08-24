@@ -223,6 +223,115 @@
           </div>
         </div>
 
+        <div class="board-filters" aria-label="Фильтры таблицы лидеров">
+          <label class="filter-field filter-search" for="board-search">
+            <span class="filter-label">Поиск</span>
+            <input type="search" id="board-search" placeholder="Поиск по имени…" autocomplete="off" />
+          </label>
+
+          <fieldset class="filter-field filter-score">
+            <legend class="filter-label">Итоговый балл</legend>
+            <div class="filter-range">
+              <label for="board-min-score">
+                <span>от</span>
+                <input id="board-min-score" type="number" min="1" max="10" step="0.1" placeholder="1" />
+              </label>
+              <label for="board-max-score">
+                <span>до</span>
+                <input id="board-max-score" type="number" min="1" max="10" step="0.1" placeholder="10" />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="filter-field filter-categories">
+            <legend class="filter-label">Минимум по категории</legend>
+            <div class="category-filters">
+              <label for="filter-red">
+                <span>Красный ≥</span>
+                <select id="filter-red">
+                  <option value="0">Любое</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                  <option value="6">6</option>
+                  <option value="7">7</option>
+                  <option value="8">8</option>
+                  <option value="9">9</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+              <label for="filter-blue">
+                <span>Синий ≥</span>
+                <select id="filter-blue">
+                  <option value="0">Любое</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                  <option value="6">6</option>
+                  <option value="7">7</option>
+                  <option value="8">8</option>
+                  <option value="9">9</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+              <label for="filter-logo-front">
+                <span>Лого спереди ≥</span>
+                <select id="filter-logo-front">
+                  <option value="0">Любое</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                  <option value="6">6</option>
+                  <option value="7">7</option>
+                  <option value="8">8</option>
+                  <option value="9">9</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+              <label for="filter-logo-back">
+                <span>Лого взади ≥</span>
+                <select id="filter-logo-back">
+                  <option value="0">Любое</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                  <option value="6">6</option>
+                  <option value="7">7</option>
+                  <option value="8">8</option>
+                  <option value="9">9</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+              <label for="filter-lenses">
+                <span>Линзы ≥</span>
+                <select id="filter-lenses">
+                  <option value="0">Любое</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                  <option value="6">6</option>
+                  <option value="7">7</option>
+                  <option value="8">8</option>
+                  <option value="9">9</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <button type="button" class="btn btn-text filter-reset" id="btn-reset-filters">Сбросить фильтры</button>
+        </div>
+
         <div class="board-layout">
           <div class="podium" id="podium"></div>
           <div class="table-card">

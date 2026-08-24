@@ -33,6 +33,12 @@ const state = {
   tiebreak: null,
   // Признак того, что данные загружены из JSON, а не оценены в этой сессии.
   imported: false,
+  filters: {
+    query: "",
+    minScore: null,
+    maxScore: null,
+    min: { red: 0, blue: 0, logoFront: 0, logoBack: 0, lenses: 0 },
+  },
 };
 
 const els = {
@@ -80,6 +86,15 @@ const els = {
   btnExport: document.getElementById("btn-export"),
   btnBackRate: document.getElementById("btn-back-rate"),
   btnNewSession: document.getElementById("btn-new-session"),
+  boardSearch: document.getElementById("board-search"),
+  boardMinScore: document.getElementById("board-min-score"),
+  boardMaxScore: document.getElementById("board-max-score"),
+  filterRed: document.getElementById("filter-red"),
+  filterBlue: document.getElementById("filter-blue"),
+  filterLogoFront: document.getElementById("filter-logo-front"),
+  filterLogoBack: document.getElementById("filter-logo-back"),
+  filterLenses: document.getElementById("filter-lenses"),
+  btnResetFilters: document.getElementById("btn-reset-filters"),
   // Tiebreaker
   tiebreakInfo: document.getElementById("tiebreak-info"),
   tiebreakLeft: document.getElementById("tiebreak-left"),
@@ -421,6 +436,57 @@ function rankedSkins(sortKey = state.sortKey) {
     });
 }
 
+function matchesFilters(row) {
+  const f = state.filters;
+  const query = f.query.trim().toLowerCase();
+  const name = String(row.skin.name || "").toLowerCase();
+  const relativePath = String(row.skin.relativePath || "").toLowerCase();
+  if (query && !name.includes(query) && !relativePath.includes(query)) return false;
+
+  const total = row.score < 0 ? null : row.score;
+  if (total == null) return false;
+  if (f.minScore != null && total < f.minScore) return false;
+  if (f.maxScore != null && total > f.maxScore) return false;
+  for (const key of ["red", "blue", "logoFront", "logoBack", "lenses"]) {
+    if (f.min[key] > 0 && (row.skin.ratings[key] ?? 0) < f.min[key]) return false;
+  }
+  return true;
+}
+
+function renderTableOnly() {
+  const ranked = rankedSkins();
+  renderTable(ranked.filter(matchesFilters), ranked);
+}
+
+function resetBoardFilters() {
+  state.filters = {
+    query: "",
+    minScore: null,
+    maxScore: null,
+    min: { red: 0, blue: 0, logoFront: 0, logoBack: 0, lenses: 0 },
+  };
+  els.boardSearch.value = "";
+  els.boardMinScore.value = "";
+  els.boardMaxScore.value = "";
+  els.filterRed.value = "0";
+  els.filterBlue.value = "0";
+  els.filterLogoFront.value = "0";
+  els.filterLogoBack.value = "0";
+  els.filterLenses.value = "0";
+}
+
+function syncBoardFilters() {
+  const f = state.filters;
+  els.boardSearch.value = f.query;
+  els.boardMinScore.value = f.minScore == null ? "" : String(f.minScore);
+  els.boardMaxScore.value = f.maxScore == null ? "" : String(f.maxScore);
+  els.filterRed.value = String(f.min.red);
+  els.filterBlue.value = String(f.min.blue);
+  els.filterLogoFront.value = String(f.min.logoFront);
+  els.filterLogoBack.value = String(f.min.logoBack);
+  els.filterLenses.value = String(f.min.lenses);
+}
+
 function disposePodium() {
   podiumRenderToken += 1;
   while (podiumHandles.length) {
@@ -606,6 +672,7 @@ async function openLeaderboard() {
   els.podium.innerHTML = `<div class="podium-empty">Готовим 3D-превью…</div>`;
   els.lbBody.replaceChildren();
   els.boardSort.value = state.sortKey;
+  syncBoardFilters();
 
   const activeSkins = state.skins.filter((skin) => !skin.skipped);
   await Promise.all(activeSkins.map((skin) => (skin.thumb ? skin.thumb : captureThumb(skin))));
@@ -614,14 +681,22 @@ async function openLeaderboard() {
 
 async function renderLeaderboard() {
   const ranked = rankedSkins();
-  renderTable(ranked);
+  renderTable(ranked.filter(matchesFilters), ranked);
   await renderPodium(ranked.slice(0, 3));
 }
 
-function renderTable(ranked) {
+function renderTable(ranked, allRanked = ranked) {
+  if (!ranked.length) {
+    const empty = document.createElement("tr");
+    empty.innerHTML = `<td colspan="9" class="table-empty">Ничего не найдено по фильтрам</td>`;
+    els.lbBody.replaceChildren(empty);
+    return;
+  }
+
+  const places = new Map(allRanked.map((row, index) => [row.skin.id, index + 1]));
   els.lbBody.replaceChildren(
     ...ranked.map((row, i) => {
-      const place = i + 1;
+      const place = places.get(row.skin.id) ?? i + 1;
       const tr = document.createElement("tr");
       const badgeClass = place === 1 ? "gold" : place === 2 ? "silver" : place === 3 ? "bronze" : "";
       tr.innerHTML = `
@@ -792,6 +867,7 @@ function newSession() {
   state.sortKey = "total";
   state.tiebreak = null;
   state.imported = false;
+  resetBoardFilters();
   setScreen("upload");
 }
 
@@ -925,6 +1001,7 @@ function loadImportedSession(session) {
   state.sortKey = "total";
   state.tiebreak = null;
   state.imported = true;
+  resetBoardFilters();
   // Импортированные данные показываем сразу, без экрана оценки и тейбрейкера.
   openLeaderboard();
 }
@@ -1037,6 +1114,20 @@ function bindUpload() {
   });
 }
 
+function readScoreFilter(input) {
+  const raw = input.value.trim();
+  if (!raw) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return null;
+  return Math.min(10, Math.max(1, value));
+}
+
+function updateCategoryFilter(key, value) {
+  const number = Number(value);
+  state.filters.min[key] = Number.isFinite(number) ? Math.min(10, Math.max(0, number)) : 0;
+  renderTableOnly();
+}
+
 function bindRate() {
   buildCategories();
   els.btnPrev.addEventListener("click", goPrev);
@@ -1047,6 +1138,29 @@ function bindRate() {
   els.boardSort.addEventListener("change", async () => {
     state.sortKey = els.boardSort.value;
     await renderLeaderboard();
+  });
+  els.boardSearch.addEventListener("input", () => {
+    state.filters.query = els.boardSearch.value;
+    renderTableOnly();
+  });
+  [els.boardMinScore, els.boardMaxScore].forEach((input) => {
+    input.addEventListener("input", () => {
+      state.filters[input === els.boardMinScore ? "minScore" : "maxScore"] = readScoreFilter(input);
+      renderTableOnly();
+    });
+  });
+  [
+    [els.filterRed, "red"],
+    [els.filterBlue, "blue"],
+    [els.filterLogoFront, "logoFront"],
+    [els.filterLogoBack, "logoBack"],
+    [els.filterLenses, "lenses"],
+  ].forEach(([select, key]) => {
+    select.addEventListener("change", () => updateCategoryFilter(key, select.value));
+  });
+  els.btnResetFilters.addEventListener("click", () => {
+    resetBoardFilters();
+    renderTableOnly();
   });
   els.btnBackRate.addEventListener("click", backToRatings);
   els.btnNewSession.addEventListener("click", newSession);

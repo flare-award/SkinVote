@@ -789,6 +789,109 @@ p {
   color: var(--ink);
 }
 
+.board-filters {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(190px, 1.05fr) auto minmax(320px, 1.8fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.filter-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.filter-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.filter-field input,
+.filter-field select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 0 11px;
+  background: var(--surface-high);
+  color: var(--ink);
+  outline: none;
+}
+
+.filter-field input::placeholder {
+  color: var(--muted);
+}
+
+.filter-field input:hover,
+.filter-field input:focus-visible,
+.filter-field select:hover,
+.filter-field select:focus-visible {
+  border-color: rgba(232, 195, 106, 0.48);
+}
+
+.filter-field input:focus-visible,
+.filter-field select:focus-visible {
+  box-shadow: 0 0 0 3px rgba(180, 192, 255, 0.16);
+}
+
+.filter-search input {
+  min-width: 0;
+}
+
+.filter-range {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-range label,
+.category-filters label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.filter-range input {
+  width: 78px;
+}
+
+.category-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-filters label {
+  flex: 1 1 112px;
+}
+
+.category-filters select {
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.filter-reset {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
 .board-layout {
   flex: 1;
   min-height: 0;
@@ -915,6 +1018,13 @@ p {
 
 .lb-table tbody tr:hover {
   background: rgba(255, 255, 255, 0.03);
+}
+
+.table-empty {
+  padding: 34px 18px !important;
+  color: var(--muted);
+  text-align: center !important;
+  white-space: normal !important;
 }
 
 .place-badge {
@@ -1093,6 +1203,32 @@ p {
   }
 
   .sort-control select {
+    width: 100%;
+  }
+
+  .board-filters {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .filter-range {
+    flex-wrap: wrap;
+  }
+
+  .filter-range label {
+    flex: 1 1 120px;
+  }
+
+  .filter-range input {
+    flex: 1;
+    width: auto;
+  }
+
+  .category-filters label {
+    flex-basis: calc(50% - 4px);
+  }
+
+  .filter-reset {
     width: 100%;
   }
 }

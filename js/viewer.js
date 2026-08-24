@@ -101,8 +101,8 @@ function getThumbEngine() {
   const canvas = document.createElement("canvas");
   const viewer = new SkinViewer({
     canvas,
-    width: 96,
-    height: 128,
+    width: 160,
+    height: 212,
     enableControls: false,
     renderPaused: true,
     preserveDrawingBuffer: true,
@@ -117,6 +117,9 @@ function getThumbEngine() {
         .then(async () => {
           await viewer.loadSkin(skin.url, { model: modelName(skin.model) });
           resetViewerPose(viewer, THUMB_ZOOM);
+          if (viewer.playerObject) {
+            viewer.playerObject.rotation.y = 0.5;
+          }
           viewer.render();
           return canvas.toDataURL("image/png");
         })

@@ -726,6 +726,11 @@ p {
   line-height: 1;
 }
 
+.total-score.is-skipped #total-value {
+  color: var(--muted);
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+}
+
 .rate-nav {
   display: flex;
   justify-content: center;
@@ -927,8 +932,8 @@ p {
 .place-badge.bronze { background: rgba(215, 160, 122, 0.16); color: #e0b08a; }
 
 .thumb-wrap {
-  width: 52px;
-  height: 68px;
+  width: 64px;
+  height: 84px;
   border-radius: 12px;
   overflow: hidden;
   background: #12131a;

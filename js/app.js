@@ -56,6 +56,7 @@ const els = {
   totalValue: document.getElementById("total-value"),
   btnPrev: document.getElementById("btn-prev"),
   btnNext: document.getElementById("btn-next"),
+  btnSkip: document.getElementById("btn-skip"),
   btnSlim: document.getElementById("btn-slim"),
   btnWide: document.getElementById("btn-wide"),
   topbarMeta: document.getElementById("topbar-meta"),
@@ -248,6 +249,7 @@ function buildCategories() {
         const skin = currentSkin();
         if (!skin) return;
         skin.ratings[cat.key] = Number(btn.dataset.v);
+        skin.skipped = false;
         refreshRatePanel();
       });
       return card;
@@ -267,7 +269,14 @@ function refreshRatePanel() {
   const skin = currentSkin();
   if (!skin) return;
   const score = average(skin.ratings);
-  els.totalValue.textContent = formatScore(score);
+  const totalScore = document.getElementById("total-score");
+  if (skin.skipped) {
+    els.totalValue.textContent = "Skipped";
+    totalScore.classList.add("is-skipped");
+  } else {
+    els.totalValue.textContent = formatScore(score);
+    totalScore.classList.remove("is-skipped");
+  }
   els.categories.querySelectorAll(".cat").forEach((card) => {
     const key = card.dataset.key;
     const value = skin.ratings[key];
@@ -276,7 +285,8 @@ function refreshRatePanel() {
   });
 
   const complete = CATEGORIES.every((c) => skin.ratings[c.key] != null);
-  els.btnNext.disabled = !complete;
+  const canProceed = complete || skin.skipped;
+  els.btnNext.disabled = !canProceed;
   els.btnNext.textContent = state.index === state.order.length - 1 ? "К таблице лидеров" : "Следующий";
   els.btnPrev.disabled = state.index === 0;
   els.rateProgress.textContent = `Скин ${state.index + 1} из ${state.order.length}`;
@@ -325,7 +335,25 @@ function goPrev() {
 
 async function goNext() {
   const skin = currentSkin();
-  if (!skin || CATEGORIES.some((c) => skin.ratings[c.key] == null)) return;
+  if (!skin) return;
+  const complete = CATEGORIES.every((c) => skin.ratings[c.key] != null);
+  if (!complete && !skin.skipped) return;
+  if (state.index < state.order.length - 1) {
+    state.index += 1;
+    await showSkin();
+    return;
+  }
+  await openLeaderboard();
+}
+
+async function skipCurrent() {
+  const skin = currentSkin();
+  if (!skin) return;
+  skin.skipped = true;
+  for (const cat of CATEGORIES) {
+    skin.ratings[cat.key] = null;
+  }
+  skin.thumb = null;
   if (state.index < state.order.length - 1) {
     state.index += 1;
     await showSkin();
@@ -336,6 +364,7 @@ async function goNext() {
 
 function rankedSkins(sortKey = state.sortKey) {
   return [...state.skins]
+    .filter((skin) => !skin.skipped)
     .map((skin) => {
       const score = average(skin.ratings) ?? -1;
       const sortScore = sortKey === "total" || score < 0 ? score : (skin.ratings[sortKey] ?? -1);
@@ -358,12 +387,14 @@ function disposePodium() {
 async function openLeaderboard() {
   if (rateHandle) rateHandle.pause();
   setScreen("board");
-  els.topbarMeta.textContent = `Оценено: ${state.skins.length}`;
+  const ratedCount = state.skins.filter((skin) => !skin.skipped).length;
+  els.topbarMeta.textContent = `Оценено: ${ratedCount}`;
   els.podium.innerHTML = `<div class="podium-empty">Готовим 3D-превью…</div>`;
   els.lbBody.replaceChildren();
   els.boardSort.value = state.sortKey;
 
-  await Promise.all(state.skins.map((skin) => (skin.thumb ? skin.thumb : captureThumb(skin))));
+  const activeSkins = state.skins.filter((skin) => !skin.skipped);
+  await Promise.all(activeSkins.map((skin) => (skin.thumb ? skin.thumb : captureThumb(skin))));
   await renderLeaderboard();
 }
 
@@ -604,6 +635,7 @@ function bindRate() {
   buildCategories();
   els.btnPrev.addEventListener("click", goPrev);
   els.btnNext.addEventListener("click", goNext);
+  els.btnSkip.addEventListener("click", skipCurrent);
   els.btnSlim.addEventListener("click", () => setModel("slim"));
   els.btnWide.addEventListener("click", () => setModel("wide"));
   els.boardSort.addEventListener("change", async () => {
@@ -618,6 +650,7 @@ function bindRate() {
     if (state.screen !== "rate") return;
     if (event.key === "ArrowLeft") goPrev();
     if (event.key === "ArrowRight") goNext();
+    if (event.key === "s" || event.key === "S") skipCurrent();
   });
 }
 

@@ -87,6 +87,7 @@ export async function inspectSkinFile(entry) {
         model: "wide",
         ratings: { red: null, blue: null, logoFront: null, logoBack: null, lenses: null },
         thumb: null,
+        skipped: false,
       },
     };
   } catch {

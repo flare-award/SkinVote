@@ -1080,16 +1080,87 @@ function formatSessionDate(iso) {
   return d.toLocaleString("ru-RU", { dateStyle: "medium", timeStyle: "short" });
 }
 
+function normalizeSkinPath(value) {
+  return String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/")
+    .toLowerCase();
+}
+
+function skinFileName(value) {
+  const path = normalizeSkinPath(value);
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+function findImportedFileMatches(importedSkins, loadedSkins) {
+  const available = loadedSkins.filter((skin) => skin.file || skin.url);
+  const used = new Set();
+  const matches = new Map();
+
+  for (const importedSkin of importedSkins) {
+    const importedPath = normalizeSkinPath(importedSkin.relativePath);
+    const importedName = skinFileName(importedSkin.name || importedSkin.relativePath);
+    let candidates = available.filter(
+      (loadedSkin) => !used.has(loadedSkin.id) && normalizeSkinPath(loadedSkin.relativePath) === importedPath,
+    );
+    if (candidates.length !== 1) {
+      candidates = available.filter(
+        (loadedSkin) => !used.has(loadedSkin.id) && skinFileName(loadedSkin.name) === importedName,
+      );
+    }
+    if (candidates.length !== 1) continue;
+    const loadedSkin = candidates[0];
+    used.add(loadedSkin.id);
+    matches.set(importedSkin.id, loadedSkin);
+  }
+  return matches;
+}
+
+function mergeImportedFiles(session) {
+  const loadedSkins = state.skins;
+  const matches = findImportedFileMatches(session.skins, loadedSkins);
+  const matchedLoadedSkins = new Set(matches.values());
+  const mergedSkins = session.skins.map((importedSkin) => {
+    const loadedSkin = matches.get(importedSkin.id);
+    if (!loadedSkin) return importedSkin;
+    return {
+      ...importedSkin,
+      file: loadedSkin.file,
+      url: loadedSkin.url,
+      width: loadedSkin.width,
+      height: loadedSkin.height,
+      fileHandle: loadedSkin.fileHandle,
+      dirHandle: loadedSkin.dirHandle,
+      // JSON-модель, оценки и заметка имеют приоритет; превью создадим заново.
+      thumb: null,
+    };
+  });
+
+  loadedSkins.forEach((loadedSkin) => {
+    if (!matchedLoadedSkins.has(loadedSkin)) revokeSkin(loadedSkin);
+  });
+  return { skins: mergedSkins, matchedCount: matches.size };
+}
+
 function showImportPreview(session) {
   const total = session.skins.length;
   const rated = session.skins.filter((s) => !s.skipped).length;
   const skipped = total - rated;
   const sample = session.skins.slice(0, 4).map((s) => escapeAttr(s.name)).join(", ");
+  const matches = findImportedFileMatches(session.skins, state.skins).size;
+  const hasLoadedFiles = state.skins.some((skin) => skin.file || skin.url);
+  const previewHint = matches
+    ? `Будут подключены локальные PNG для ${matches} из ${total} скинов; для остальных останутся плейсхолдеры.`
+    : hasLoadedFiles
+      ? "Совпадений с уже загруженными PNG не найдено; для скинов будут показаны плейсхолдеры."
+      : "Если PNG не загружены, для скинов будут показаны плейсхолдеры вместо 3D-превью.";
   els.importPreview.innerHTML = `
     <p class="muted">Сессия от <b>${formatSessionDate(session.date)}</b></p>
     <p>Скинов в файле: <b>${total}</b>${rated !== total ? ` (оценено ${rated}, пропущено ${skipped})` : ""}</p>
     ${sample ? `<p class="muted" style="margin-top:8px">Например: ${sample}${total > 4 ? "…" : ""}</p>` : ""}
-    <p class="muted" style="margin-top:8px">Сразу откроется таблица лидеров. 3D-превью доступны только для скинов, чьи файлы сейчас загружены.</p>
+    <p class="muted" style="margin-top:8px">${previewHint}</p>
+    <p class="muted" style="margin-top:8px">Сразу откроется таблица лидеров.</p>
   `;
   if (typeof els.importDialog.showModal === "function") els.importDialog.showModal();
   else showToast(`Импорт: ${total} скинов`);
@@ -1097,8 +1168,8 @@ function showImportPreview(session) {
 
 function loadImportedSession(session) {
   if (typeof els.importDialog.close === "function") els.importDialog.close();
-  state.skins.forEach(revokeSkin);
-  state.skins = session.skins;
+  const merged = mergeImportedFiles(session);
+  state.skins = merged.skins;
   state.rejected = [];
   state.skipped = 0;
   state.order = [];
@@ -1107,6 +1178,9 @@ function loadImportedSession(session) {
   state.tiebreak = null;
   state.imported = true;
   resetBoardFilters();
+  if (merged.matchedCount) {
+    showToast(`Подключены локальные PNG: ${merged.matchedCount} из ${session.skins.length}`);
+  }
   // Импортированные данные показываем сразу, без экрана оценки и тейбрейкера.
   openLeaderboard();
 }

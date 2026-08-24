@@ -92,6 +92,21 @@
                 </span>
                 Выбрать папку
               </button>
+              <button type="button" class="btn btn-outlined" id="btn-import">
+                <span class="btn-ico" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18">
+                    <path
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M12 3v12M12 15l-4-4M12 15l4-4M5 19h14"
+                    />
+                  </svg>
+                </span>
+                Загрузить оценки
+              </button>
             </div>
           </div>
 
@@ -188,6 +203,21 @@
                 <option value="lenses">Линзы</option>
               </select>
             </label>
+            <button type="button" class="btn btn-outlined" id="btn-export">
+              <span class="btn-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M12 3v12M12 15l4-4M12 15l-4-4M5 19h14"
+                  />
+                </svg>
+              </span>
+              Сохранить оценки
+            </button>
             <button type="button" class="btn btn-outlined" id="btn-back-rate">Вернуться к оценкам</button>
             <button type="button" class="btn btn-tonal" id="btn-new-session">Новая сессия</button>
           </div>
@@ -217,27 +247,71 @@
           </div>
         </div>
       </section>
+
+      <!-- TIEBREAK -->
+      <section id="screen-tiebreak" class="screen" data-screen="tiebreak" hidden>
+        <div class="tiebreak-head">
+          <p class="eyebrow">Ничья в топ-8</p>
+          <h2>Какой скин лучше?</h2>
+          <p class="muted" id="tiebreak-info">Сравните скины с одинаковым баллом и выберите лучший.</p>
+        </div>
+        <div class="tiebreak-arena">
+          <button type="button" class="tiebreak-card" id="tiebreak-left" aria-label="Выбрать левый скин">
+            <div class="tiebreak-stage"><canvas></canvas></div>
+            <div class="tiebreak-name"></div>
+            <div class="tiebreak-score"></div>
+            <span class="tiebreak-pick">Выбрать</span>
+          </button>
+          <div class="tiebreak-vs" aria-hidden="true">VS</div>
+          <button type="button" class="tiebreak-card" id="tiebreak-right" aria-label="Выбрать правый скин">
+            <div class="tiebreak-stage"><canvas></canvas></div>
+            <div class="tiebreak-name"></div>
+            <div class="tiebreak-score"></div>
+            <span class="tiebreak-pick">Выбрать</span>
+          </button>
+        </div>
+        <div class="tiebreak-nav">
+          <span class="muted">Тейбрейкер определяет только порядок при равных баллах — оценки не меняются.</span>
+          <button type="button" class="btn btn-text" id="btn-tiebreak-skip">Оставить порядок как есть</button>
+        </div>
+      </section>
     </div>
 
     <div id="toast" class="toast" hidden role="status"></div>
 
     <dialog id="reveal-dialog" class="sheet">
       <form method="dialog" class="sheet-inner">
-        <h3>Файл на диске</h3>
+        <h3>Расположение файла</h3>
         <p class="muted">
-          Браузер не может открыть системный проводник с точным выделением файла.
-          Ниже — известный путь. В Chromium можно открыть диалог выбора рядом с файлом.
+          Браузер не может открыть системный проводник и выделить там файл — это ограничение
+          веб-платформы. Скопируйте путь ниже и откройте папку вручную в проводнике.
         </p>
-        <p class="path-box" id="reveal-path"></p>
+        <p class="path-label">Файл</p>
+        <p class="path-box" id="reveal-path">—</p>
+        <p class="path-label">Папка</p>
+        <p class="path-box" id="reveal-dir">—</p>
         <div class="sheet-actions">
           <button value="cancel" class="btn btn-text">Закрыть</button>
-          <button type="button" class="btn btn-filled" id="btn-reveal-picker">Открыть рядом</button>
+          <button type="button" class="btn btn-outlined" id="btn-copy-dir">Копировать папку</button>
+          <button type="button" class="btn btn-filled" id="btn-copy-path">Копировать путь</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="import-dialog" class="sheet">
+      <form method="dialog" class="sheet-inner">
+        <h3>Загрузка оценок</h3>
+        <div id="import-preview" class="import-preview"></div>
+        <div class="sheet-actions">
+          <button value="cancel" class="btn btn-text">Отмена</button>
+          <button type="button" class="btn btn-filled" id="btn-import-confirm">Просмотреть таблицу лидеров</button>
         </div>
       </form>
     </dialog>
 
     <input id="input-files" type="file" accept="image/png,.png" multiple hidden />
     <input id="input-folder" type="file" accept="image/png,.png" webkitdirectory directory multiple hidden />
+    <input id="input-import" type="file" accept="application/json,.json" hidden />
 
     <script src="./vendor/skinview3d.bundle.js"></script>
     <script type="module" src="./js/app.js"></script>

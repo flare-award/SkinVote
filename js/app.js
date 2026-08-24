@@ -10,7 +10,7 @@ import {
   supportsDirPicker,
   supportsFsAccess,
 } from "./files.js";
-import { captureThumb, createAttachedViewer } from "./viewer.js";
+import { captureThumb, createAttachedViewer, disposeThumbEngine, thumbPlaceholder } from "./viewer.js";
 
 const CATEGORIES = [
   { key: "red", label: "Красный цвет" },
@@ -28,6 +28,11 @@ const state = {
   index: 0,
   screen: "upload",
   sortKey: "total",
+  // Результат тейбрейкера: Map(skinId -> rank внутри группы ничьих), либо null,
+  // если тейбрейкер ещё не проводился (или был сброшен после изменения оценок).
+  tiebreak: null,
+  // Признак того, что данные загружены из JSON, а не оценены в этой сессии.
+  imported: false,
 };
 
 const els = {
@@ -35,6 +40,7 @@ const els = {
     upload: document.getElementById("screen-upload"),
     rate: document.getElementById("screen-rate"),
     board: document.getElementById("screen-board"),
+    tiebreak: document.getElementById("screen-tiebreak"),
   },
   dropzone: document.getElementById("dropzone"),
   summary: document.getElementById("upload-summary"),
@@ -48,8 +54,10 @@ const els = {
   btnClearInvalid: document.getElementById("btn-clear-invalid"),
   btnPickFiles: document.getElementById("btn-pick-files"),
   btnPickFolder: document.getElementById("btn-pick-folder"),
+  btnImport: document.getElementById("btn-import"),
   inputFiles: document.getElementById("input-files"),
   inputFolder: document.getElementById("input-folder"),
+  inputImport: document.getElementById("input-import"),
   currentName: document.getElementById("current-name"),
   rateProgress: document.getElementById("rate-progress"),
   categories: document.getElementById("categories"),
@@ -65,17 +73,37 @@ const els = {
   toast: document.getElementById("toast"),
   dialog: document.getElementById("reveal-dialog"),
   revealPath: document.getElementById("reveal-path"),
-  btnRevealPicker: document.getElementById("btn-reveal-picker"),
+  revealDir: document.getElementById("reveal-dir"),
+  btnCopyPath: document.getElementById("btn-copy-path"),
+  btnCopyDir: document.getElementById("btn-copy-dir"),
   boardSort: document.getElementById("board-sort"),
+  btnExport: document.getElementById("btn-export"),
   btnBackRate: document.getElementById("btn-back-rate"),
   btnNewSession: document.getElementById("btn-new-session"),
+  // Tiebreaker
+  tiebreakInfo: document.getElementById("tiebreak-info"),
+  tiebreakLeft: document.getElementById("tiebreak-left"),
+  tiebreakRight: document.getElementById("tiebreak-right"),
+  btnTiebreakSkip: document.getElementById("btn-tiebreak-skip"),
+  // Import
+  importDialog: document.getElementById("import-dialog"),
+  importPreview: document.getElementById("import-preview"),
+  btnImportConfirm: document.getElementById("btn-import-confirm"),
 };
 
 let rateHandle = null;
 const podiumHandles = [];
 let podiumRenderToken = 0;
-let pendingReveal = null;
 let toastTimer = 0;
+
+// Tiebreaker: два переиспользуемых вьюера (левый/правый) — всего 2 WebGL-контекста
+// на весь экран тейбрейкера, освобождаются после разрешения всех ничьих.
+const tiebreakHandles = [];
+let tiebreakChoiceResolve = null;
+let tiebreakAborted = false;
+let tiebreakCompareCount = 0;
+let tiebreakGroupLabel = "";
+let pendingImport = null;
 
 function currentSkin() {
   const id = state.order[state.index];
@@ -250,6 +278,7 @@ function buildCategories() {
         if (!skin) return;
         skin.ratings[cat.key] = Number(btn.dataset.v);
         skin.skipped = false;
+        invalidateTiebreak();
         refreshRatePanel();
       });
       return card;
@@ -323,6 +352,7 @@ async function setModel(model) {
   if (!skin || !rateHandle) return;
   skin.model = model;
   skin.thumb = null;
+  invalidateTiebreak();
   rateHandle.setModel(model);
   refreshRatePanel();
 }
@@ -343,7 +373,7 @@ async function goNext() {
     await showSkin();
     return;
   }
-  await openLeaderboard();
+  await finishRating();
 }
 
 async function skipCurrent() {
@@ -354,15 +384,17 @@ async function skipCurrent() {
     skin.ratings[cat.key] = null;
   }
   skin.thumb = null;
+  invalidateTiebreak();
   if (state.index < state.order.length - 1) {
     state.index += 1;
     await showSkin();
     return;
   }
-  await openLeaderboard();
+  await finishRating();
 }
 
 function rankedSkins(sortKey = state.sortKey) {
+  const tiebreak = state.tiebreak;
   return [...state.skins]
     .filter((skin) => !skin.skipped)
     .map((skin) => {
@@ -371,7 +403,20 @@ function rankedSkins(sortKey = state.sortKey) {
       return { skin, score, sortScore };
     })
     .sort((a, b) => {
-      if (sortKey === "total") return b.score - a.score || a.skin.name.localeCompare(b.skin.name, "ru");
+      if (sortKey === "total") {
+        if (b.score !== a.score) return b.score - a.score;
+        // Тейбрейкер разрешает порядок только при равенстве итогового балла.
+        // Скины без рейтинга (undefined) считаются «хуже» любых размеченных —
+        // так разрешённая топ-8 не вытесняется снизу скином с тем же баллом.
+        if (tiebreak) {
+          const ra = tiebreak.get(a.skin.id);
+          const rb = tiebreak.get(b.skin.id);
+          const raV = ra == null ? Infinity : ra;
+          const rbV = rb == null ? Infinity : rb;
+          if (raV !== rbV) return raV - rbV;
+        }
+        return a.skin.name.localeCompare(b.skin.name, "ru");
+      }
       return b.sortScore - a.sortScore || b.score - a.score || a.skin.name.localeCompare(b.skin.name, "ru");
     });
 }
@@ -384,9 +429,178 @@ function disposePodium() {
   }
 }
 
+function invalidateTiebreak() {
+  // Любое изменение оценок сбрасывает результат тейбрейкера — при следующем
+  // переходе к таблице лидеров он будет проведён заново, если ничьи ещё есть.
+  state.tiebreak = null;
+}
+
+// Группы скинов с одинаковым итоговым баллом внутри топ-8 (по общей оценке).
+// Вне топ-8 тейбрейкер не нужен — порядок там не влияет на «призы».
+function findTieGroups() {
+  const ranked = rankedSkins("total");
+  const top = ranked.slice(0, 8);
+  const groups = [];
+  let current = [];
+  let currentScore = null;
+  for (const row of top) {
+    if (current.length && row.score === currentScore) {
+      current.push(row.skin);
+    } else {
+      if (current.length >= 2) groups.push(current);
+      current = [row.skin];
+      currentScore = row.score;
+    }
+  }
+  if (current.length >= 2) groups.push(current);
+  return groups;
+}
+
+// Точка входа в тейбрейкер: вызывается из finishRating перед таблицей лидеров.
+// Возвращает Map(skinId -> rank). Если ничьих нет — пустой Map.
+async function runTiebreak(groups) {
+  if (!groups.length) return new Map();
+
+  setScreen("tiebreak");
+  els.topbarMeta.textContent = "Тейбрейкер";
+
+  // Два переиспользуемых вьюера на весь экран тейбрейкера.
+  if (!tiebreakHandles.length) {
+    tiebreakHandles.push(
+      createAttachedViewer(els.tiebreakLeft.querySelector("canvas"), { controls: true, zoom: 0.8 }),
+      createAttachedViewer(els.tiebreakRight.querySelector("canvas"), { controls: true, zoom: 0.8 }),
+    );
+  }
+
+  tiebreakAborted = false;
+  tiebreakCompareCount = 0;
+  const result = new Map();
+
+  for (let gi = 0; gi < groups.length; gi += 1) {
+    const group = groups[gi];
+    if (tiebreakAborted) {
+      // При отказе сохраняем текущий (именной) порядок группы.
+      group.forEach((skin, idx) => result.set(skin.id, idx));
+      continue;
+    }
+    tiebreakGroupLabel =
+      `Группа ${gi + 1} из ${groups.length} · одинаковый балл ${formatScore(average(group[0].ratings))} · ` +
+      `${group.length} ${pluralSkins(group.length).split(" ")[1]} с ничьей`;
+    els.tiebreakInfo.textContent = tiebreakGroupLabel;
+    const ordered = await orderGroup(group.slice());
+    ordered.forEach((skin, idx) => result.set(skin.id, idx));
+  }
+
+  disposeTiebreakViewers();
+  return result;
+}
+
+// Сортировка слиянием на попарных сравнениях пользователя: даёт полный порядок
+// при минимуме сравнений (≈ N·log N) и хорошо ложится на «сначала пары, потом
+// победители друг с другом».
+async function orderGroup(group) {
+  if (group.length <= 1) return group.slice();
+  if (group.length === 2) {
+    const [winner, loser] = await resolvePair(group[0], group[1]);
+    return [winner, loser];
+  }
+  const mid = Math.ceil(group.length / 2);
+  const left = await orderGroup(group.slice(0, mid));
+  if (tiebreakAborted) return [...left, ...group.slice(mid)];
+  const right = await orderGroup(group.slice(mid));
+  if (tiebreakAborted) return [...left, ...right];
+  return mergeOrdered(left, right);
+}
+
+async function mergeOrdered(left, right) {
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < left.length && j < right.length && !tiebreakAborted) {
+    const [winner] = await resolvePair(left[i], right[j]);
+    if (winner === left[i]) {
+      out.push(left[i]);
+      i += 1;
+    } else {
+      out.push(right[j]);
+      j += 1;
+    }
+  }
+  while (i < left.length) out.push(left[i++]);
+  while (j < right.length) out.push(right[j++]);
+  return out;
+}
+
+// Показывает пару скинов и ждёт выбора пользователя. Возвращает [winner, loser].
+async function resolvePair(a, b) {
+  if (tiebreakAborted) return [a, b];
+
+  await Promise.all([tiebreakHandles[0].load(a), tiebreakHandles[1].load(b)]);
+  if (tiebreakAborted) return [a, b];
+
+  tiebreakCompareCount += 1;
+  els.tiebreakInfo.textContent = `${tiebreakGroupLabel} · сравнение ${tiebreakCompareCount}`;
+  fillTiebreakCard(els.tiebreakLeft, a);
+  fillTiebreakCard(els.tiebreakRight, b);
+
+  const choice = await waitForChoice();
+  if (tiebreakAborted || choice == null) return [a, b];
+  return choice === a.id ? [a, b] : [b, a];
+}
+
+function fillTiebreakCard(card, skin) {
+  card.dataset.id = skin.id;
+  card.querySelector(".tiebreak-name").textContent = skin.name;
+  card.querySelector(".tiebreak-score").textContent = formatScore(average(skin.ratings));
+}
+
+function waitForChoice() {
+  return new Promise((resolve) => {
+    tiebreakChoiceResolve = resolve;
+  });
+}
+
+function pickTiebreak(id) {
+  if (!tiebreakChoiceResolve) return;
+  const resolve = tiebreakChoiceResolve;
+  tiebreakChoiceResolve = null;
+  resolve(id);
+}
+
+function cancelTiebreak() {
+  tiebreakAborted = true;
+  if (tiebreakChoiceResolve) {
+    const resolve = tiebreakChoiceResolve;
+    tiebreakChoiceResolve = null;
+    resolve(null);
+  }
+}
+
+function disposeTiebreakViewers() {
+  while (tiebreakHandles.length) {
+    const handle = tiebreakHandles.pop();
+    handle.dispose();
+  }
+  tiebreakChoiceResolve = null;
+}
+
+// Завершение оценки: при необходимости проводит тейбрейкер, затем открывает
+// таблицу лидеров. Тейбрейкер проводится один раз и кешируется в state.tiebreak,
+// пока оценки не изменятся (что сбрасывает кеш через invalidateTiebreak).
+async function finishRating() {
+  if (rateHandle) rateHandle.pause();
+  if (state.tiebreak == null) {
+    const groups = findTieGroups();
+    state.tiebreak = groups.length ? await runTiebreak(groups) : new Map();
+  }
+  await openLeaderboard();
+}
+
 async function openLeaderboard() {
   if (rateHandle) rateHandle.pause();
   setScreen("board");
+  // У импортированной сессии нет экрана оценки — прячем «вернуться к оценкам».
+  els.btnBackRate.hidden = !!state.imported;
   const ratedCount = state.skins.filter((skin) => !skin.skipped).length;
   els.topbarMeta.textContent = `Оценено: ${ratedCount}`;
   els.podium.innerHTML = `<div class="podium-empty">Готовим 3D-превью…</div>`;
@@ -465,6 +679,19 @@ async function renderPodium(top) {
       continue;
     }
     const { skin, score } = top[i];
+    if (!skin.url) {
+      // Импортированный скин без файла — 3D недоступен, показываем плейсхолдер.
+      card.innerHTML = `
+        <div class="podium-place">${labels[i]}</div>
+        <div class="podium-stage"><img class="podium-ph" alt="" /></div>
+        <div class="podium-name" title="${escapeAttr(skin.relativePath)}"></div>
+        <div class="podium-score">${formatScore(score < 0 ? null : score)}</div>
+      `;
+      card.querySelector(".podium-name").textContent = skin.name;
+      card.querySelector(".podium-ph").src = skin.thumb || thumbPlaceholder();
+      els.podium.append(card);
+      continue;
+    }
     card.innerHTML = `
       <div class="podium-place">${labels[i]}</div>
       <div class="podium-stage"><canvas></canvas></div>
@@ -508,30 +735,40 @@ function hideTip() {
   tipNode = null;
 }
 
-async function onReveal(skin) {
-  const result = await revealSkin(skin);
-  if (result.mode === "cancelled" || result.mode === "picker" || result.mode === "folder") return;
-  pendingReveal = skin;
-  els.revealPath.textContent = result.path;
+function onReveal(skin) {
+  // Из браузера нельзя открыть системный проводник и выделить файл — показываем
+  // известный путь к файлу и папке, чтобы пользователь скопировал его и открыл
+  // папку вручную. Никаких диалогов выбора файлов/папок.
+  const result = revealSkin(skin);
+  els.revealPath.textContent = result.path || "—";
+  els.revealDir.textContent = result.dirPath || result.path || "—";
   if (typeof els.dialog.showModal === "function") els.dialog.showModal();
-  else showToast(result.path);
+  else showToast(result.path || result.dirPath);
 }
 
-async function revealFromDialog() {
-  if (!pendingReveal) return;
-  if (supportsDirPicker()) {
-    const startHandles = [pendingReveal.fileHandle, pendingReveal.dirHandle].filter(Boolean);
-    for (const startIn of startHandles) {
-      try {
-        await window.showDirectoryPicker({ startIn });
-        els.dialog.close();
-        return;
-      } catch (error) {
-        if (error?.name === "AbortError") return;
-      }
-    }
+async function copyText(text) {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast("Скопировано в буфер обмена");
+    return;
+  } catch {
+    // clipboard API может быть недоступен — пробуем запасной вариант.
   }
-  showToast("В этом браузере доступна только подсказка с путём к файлу");
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.append(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  ta.remove();
+  showToast(ok ? "Скопировано в буфер обмена" : "Не удалось скопировать");
 }
 
 function backToRatings() {
@@ -543,6 +780,8 @@ function backToRatings() {
 
 function newSession() {
   disposePodium();
+  disposeTiebreakViewers();
+  disposeThumbEngine();
   if (rateHandle) {
     rateHandle.dispose();
     rateHandle = null;
@@ -551,7 +790,167 @@ function newSession() {
   state.order = [];
   state.index = 0;
   state.sortKey = "total";
+  state.tiebreak = null;
+  state.imported = false;
   setScreen("upload");
+}
+
+// --- Экспорт / импорт оценок ---
+
+function freshId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return `skin-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function exportRatings() {
+  const rated = state.skins.filter((s) => !s.skipped);
+  if (!rated.length) {
+    showToast("Нет оценённых скинов для сохранения");
+    return;
+  }
+  const data = {
+    version: 1,
+    date: new Date().toISOString(),
+    skins: state.skins.map((s) => {
+      const ratings = s.skipped
+        ? { red: null, blue: null, logoFront: null, logoBack: null, lenses: null }
+        : {
+            red: s.ratings.red ?? null,
+            blue: s.ratings.blue ?? null,
+            logoFront: s.ratings.logoFront ?? null,
+            logoBack: s.ratings.logoBack ?? null,
+            lenses: s.ratings.lenses ?? null,
+          };
+      return {
+        name: s.name,
+        relativePath: s.relativePath,
+        model: s.model === "slim" ? "slim" : "wide",
+        ratings,
+        skipped: !!s.skipped,
+      };
+    }),
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `skinvote-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+  showToast("Оценки сохранены в JSON");
+}
+
+function parseSession(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("Файл не является корректным JSON");
+  }
+  if (!data || typeof data !== "object" || !Array.isArray(data.skins)) {
+    throw new Error("Неверная структура файла: ожидается объект со списком skins");
+  }
+  const keys = ["red", "blue", "logoFront", "logoBack", "lenses"];
+  const skins = data.skins.map((raw, i) => {
+    if (!raw || typeof raw !== "object") {
+      throw new Error(`Скин #${i + 1}: неверная запись`);
+    }
+    const name = String(raw.name || `skin-${i + 1}.png`);
+    const relativePath = String(raw.relativePath || name);
+    const model = raw.model === "slim" ? "slim" : "wide";
+    const skipped = !!raw.skipped;
+    const inRatings = raw.ratings && typeof raw.ratings === "object" ? raw.ratings : {};
+    const ratings = {};
+    for (const k of keys) {
+      const v = inRatings[k];
+      ratings[k] = Number.isFinite(v) && v >= 0 && v <= 10 ? Number(v) : null;
+    }
+    return {
+      id: freshId(),
+      name,
+      relativePath,
+      file: null,
+      url: null,
+      width: null,
+      height: null,
+      fileHandle: null,
+      dirHandle: null,
+      model,
+      ratings,
+      thumb: null,
+      skipped,
+      imported: true,
+    };
+  });
+  return {
+    version: Number(data.version) || 1,
+    date: typeof data.date === "string" ? data.date : null,
+    skins,
+  };
+}
+
+function formatSessionDate(iso) {
+  if (!iso) return "дата неизвестна";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("ru-RU", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function showImportPreview(session) {
+  const total = session.skins.length;
+  const rated = session.skins.filter((s) => !s.skipped).length;
+  const skipped = total - rated;
+  const sample = session.skins.slice(0, 4).map((s) => escapeAttr(s.name)).join(", ");
+  els.importPreview.innerHTML = `
+    <p class="muted">Сессия от <b>${formatSessionDate(session.date)}</b></p>
+    <p>Скинов в файле: <b>${total}</b>${rated !== total ? ` (оценено ${rated}, пропущено ${skipped})` : ""}</p>
+    ${sample ? `<p class="muted" style="margin-top:8px">Например: ${sample}${total > 4 ? "…" : ""}</p>` : ""}
+    <p class="muted" style="margin-top:8px">Сразу откроется таблица лидеров. 3D-превью доступны только для скинов, чьи файлы сейчас загружены.</p>
+  `;
+  if (typeof els.importDialog.showModal === "function") els.importDialog.showModal();
+  else showToast(`Импорт: ${total} скинов`);
+}
+
+function loadImportedSession(session) {
+  if (typeof els.importDialog.close === "function") els.importDialog.close();
+  state.skins.forEach(revokeSkin);
+  state.skins = session.skins;
+  state.rejected = [];
+  state.skipped = 0;
+  state.order = [];
+  state.index = 0;
+  state.sortKey = "total";
+  state.tiebreak = null;
+  state.imported = true;
+  // Импортированные данные показываем сразу, без экрана оценки и тейбрейкера.
+  openLeaderboard();
+}
+
+async function handleImportFile(file) {
+  if (!file) return;
+  let text;
+  try {
+    text = await file.text();
+  } catch {
+    showToast("Не удалось прочитать файл");
+    return;
+  }
+  let session;
+  try {
+    session = parseSession(text);
+  } catch (error) {
+    showToast(error.message || "Неверный формат файла");
+    return;
+  }
+  if (!session.skins.length) {
+    showToast("В файле нет скинов");
+    return;
+  }
+  pendingImport = session;
+  showImportPreview(session);
 }
 
 function bindUpload() {
@@ -629,6 +1028,13 @@ function bindUpload() {
     renderUpload();
   });
   els.btnStart.addEventListener("click", startSession);
+
+  els.btnImport.addEventListener("click", () => els.inputImport.click());
+  els.inputImport.addEventListener("change", async () => {
+    const file = els.inputImport.files?.[0];
+    els.inputImport.value = "";
+    if (file) await handleImportFile(file);
+  });
 }
 
 function bindRate() {
@@ -644,7 +1050,24 @@ function bindRate() {
   });
   els.btnBackRate.addEventListener("click", backToRatings);
   els.btnNewSession.addEventListener("click", newSession);
-  els.btnRevealPicker.addEventListener("click", revealFromDialog);
+
+  // Путь к файлу: копирование без диалогов выбора.
+  els.btnCopyPath.addEventListener("click", () => copyText(els.revealPath.textContent.trim()));
+  els.btnCopyDir.addEventListener("click", () => copyText(els.revealDir.textContent.trim()));
+
+  // Экспорт оценок в JSON.
+  els.btnExport.addEventListener("click", exportRatings);
+
+  // Тейбрейкер: клик по карточке = выбор скина; «оставить как есть» = отмена.
+  els.tiebreakLeft.addEventListener("click", () => pickTiebreak(els.tiebreakLeft.dataset.id));
+  els.tiebreakRight.addEventListener("click", () => pickTiebreak(els.tiebreakRight.dataset.id));
+  els.btnTiebreakSkip.addEventListener("click", cancelTiebreak);
+
+  // Подтверждение импорта.
+  els.btnImportConfirm.addEventListener("click", () => {
+    if (pendingImport) loadImportedSession(pendingImport);
+    pendingImport = null;
+  });
 
   window.addEventListener("keydown", (event) => {
     if (state.screen !== "rate") return;

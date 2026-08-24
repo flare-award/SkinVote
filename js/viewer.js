@@ -1,5 +1,11 @@
 const DEFAULT_ZOOM = 0.78;
-const THUMB_ZOOM = 0.86;
+// Превью в таблице лидеров: один offscreen-контекст, рендер в высоком разрешении,
+// затем результат ужимается в <img>. 256×336 = 64×84 ×4 — точно повторяет пропорции
+// контейнера .thumb-wrap, поэтому object-fit: cover не обрезает модель.
+const THUMB_WIDTH = 256;
+const THUMB_HEIGHT = 336;
+const THUMB_ZOOM = 0.92;
+const THUMB_ROTATION = 0.55; // ~31°, ракурс 3/4 — видно голову, торс и детали
 
 function requireLib() {
   if (!window.skinview3d?.SkinViewer) {
@@ -93,6 +99,19 @@ export function createAttachedViewer(canvas, { controls = true, zoom = DEFAULT_Z
   };
 }
 
+// Плейсхолдер для скинов без файла (например, импортированных из JSON, когда сам
+// PNG недоступен). Минимальный data-URL, чтобы в таблице не было пустоты.
+const PLACEHOLDER_THUMB =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="84" viewBox="0 0 64 84">` +
+      `<rect width="64" height="84" fill="#12131a"/>` +
+      `<rect x="22" y="14" width="20" height="20" rx="3" fill="#262736"/>` +
+      `<rect x="18" y="36" width="28" height="30" rx="4" fill="#1e1f2b"/>` +
+      `<text x="32" y="78" font-family="sans-serif" font-size="8" fill="#918ca0" text-anchor="middle">нет файла</text>` +
+      `</svg>`,
+  );
+
 let thumbEngine = null;
 
 function getThumbEngine() {
@@ -101,15 +120,16 @@ function getThumbEngine() {
   const canvas = document.createElement("canvas");
   const viewer = new SkinViewer({
     canvas,
-    width: 160,
-    height: 212,
+    width: THUMB_WIDTH,
+    height: THUMB_HEIGHT,
     enableControls: false,
     renderPaused: true,
     preserveDrawingBuffer: true,
     zoom: THUMB_ZOOM,
-    fov: 48,
+    fov: 45,
   });
   applyLook(viewer);
+  viewer.globalLight.intensity = 2.7;
   let chain = Promise.resolve();
   thumbEngine = {
     capture(skin) {
@@ -118,7 +138,7 @@ function getThumbEngine() {
           await viewer.loadSkin(skin.url, { model: modelName(skin.model) });
           resetViewerPose(viewer, THUMB_ZOOM);
           if (viewer.playerObject) {
-            viewer.playerObject.rotation.y = 0.5;
+            viewer.playerObject.rotation.y = THUMB_ROTATION;
           }
           viewer.render();
           return canvas.toDataURL("image/png");
@@ -135,8 +155,21 @@ function getThumbEngine() {
 }
 
 export async function captureThumb(skin) {
+  // Нет реального файла (импорт без PNG) — отдаём плейсхолдер, WebGL не трогаем.
+  if (!skin.url) {
+    skin.thumb = PLACEHOLDER_THUMB;
+    return skin.thumb;
+  }
   const engine = getThumbEngine();
   const data = await engine.capture(skin);
-  skin.thumb = data;
-  return data;
+  skin.thumb = data || PLACEHOLDER_THUMB;
+  return skin.thumb;
+}
+
+export function disposeThumbEngine() {
+  if (thumbEngine) thumbEngine.dispose();
+}
+
+export function thumbPlaceholder() {
+  return PLACEHOLDER_THUMB;
 }

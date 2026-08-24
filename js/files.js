@@ -157,7 +157,9 @@ export async function inspectSkinFile(entry) {
         model: detectSkinModel(img, width, height),
         ratings: { red: null, blue: null, logoFront: null, logoBack: null, lenses: null },
         thumb: null,
+        note: "",
         skipped: false,
+        imported: false,
       },
     };
   } catch {

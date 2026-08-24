@@ -104,12 +104,28 @@ const els = {
   importDialog: document.getElementById("import-dialog"),
   importPreview: document.getElementById("import-preview"),
   btnImportConfirm: document.getElementById("btn-import-confirm"),
+  // Detail viewer
+  detailDialog: document.getElementById("detail-dialog"),
+  detailStage: document.getElementById("detail-stage"),
+  detailCanvas: document.getElementById("detail-canvas"),
+  detailPlaceholder: document.getElementById("detail-placeholder"),
+  detailName: document.getElementById("detail-name"),
+  detailScore: document.getElementById("detail-score"),
+  detailCategories: document.getElementById("detail-categories"),
+  detailNote: document.getElementById("detail-note"),
+  detailPath: document.getElementById("detail-path"),
+  detailDir: document.getElementById("detail-dir"),
+  btnDetailCopyPath: document.getElementById("btn-detail-copy-path"),
+  btnDetailCopyDir: document.getElementById("btn-detail-copy-dir"),
 };
 
 let rateHandle = null;
 const podiumHandles = [];
 let podiumRenderToken = 0;
 let toastTimer = 0;
+let detailHandle = null;
+let detailSkin = null;
+let detailRenderToken = 0;
 
 // Tiebreaker: два переиспользуемых вьюера (левый/правый) — всего 2 WebGL-контекста
 // на весь экран тейбрейкера, освобождаются после разрешения всех ничьих.
@@ -702,8 +718,11 @@ function renderTable(ranked, allRanked = ranked) {
       tr.innerHTML = `
         <td><span class="place-badge ${badgeClass}">${place}</span></td>
         <td>
-          <div class="thumb-wrap" data-tip="${escapeAttr(row.skin.relativePath)}">
-            <img alt="" />
+          <div class="skin-cell">
+            <div class="thumb-wrap" data-tip="${escapeAttr(row.skin.relativePath)}" role="button" tabindex="0" aria-label="Открыть подробный просмотр">
+              <img alt="" />
+            </div>
+            <span class="skin-name" role="button" tabindex="0"></span>
           </div>
         </td>
         <td class="score-strong">${formatScore(row.score < 0 ? null : row.score)}</td>
@@ -724,8 +743,19 @@ function renderTable(ranked, allRanked = ranked) {
       img.src = row.skin.thumb || "";
       img.alt = row.skin.name;
       const wrap = tr.querySelector(".thumb-wrap");
+      const name = tr.querySelector(".skin-name");
+      const openDetailFromKeyboard = (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        void openDetail(row.skin);
+      };
+      name.textContent = row.skin.name;
       wrap.addEventListener("pointerenter", (event) => showTip(event, row.skin.relativePath));
       wrap.addEventListener("pointerleave", hideTip);
+      wrap.addEventListener("click", () => void openDetail(row.skin));
+      wrap.addEventListener("keydown", openDetailFromKeyboard);
+      name.addEventListener("click", () => void openDetail(row.skin));
+      name.addEventListener("keydown", openDetailFromKeyboard);
       tr.querySelector(".icon-btn").addEventListener("click", () => onReveal(row.skin));
       return tr;
     }),
@@ -810,15 +840,74 @@ function hideTip() {
   tipNode = null;
 }
 
+function fillPathFields(result, pathNode, dirNode) {
+  pathNode.textContent = result.path || "—";
+  dirNode.textContent = result.dirPath || result.path || "—";
+}
+
 function onReveal(skin) {
   // Из браузера нельзя открыть системный проводник и выделить файл — показываем
   // известный путь к файлу и папке, чтобы пользователь скопировал его и открыл
   // папку вручную. Никаких диалогов выбора файлов/папок.
   const result = revealSkin(skin);
-  els.revealPath.textContent = result.path || "—";
-  els.revealDir.textContent = result.dirPath || result.path || "—";
+  fillPathFields(result, els.revealPath, els.revealDir);
   if (typeof els.dialog.showModal === "function") els.dialog.showModal();
   else showToast(result.path || result.dirPath);
+}
+
+function renderDetailCategories(skin) {
+  els.detailCategories.replaceChildren(
+    ...CATEGORIES.map((cat) => {
+      const row = document.createElement("div");
+      row.className = "detail-category";
+      row.innerHTML = `<span><i class="swatch"></i>${cat.label}</span><strong></strong>`;
+      row.querySelector("strong").textContent = skin.ratings[cat.key] ?? "—";
+      return row;
+    }),
+  );
+}
+
+async function openDetail(skin) {
+  if (!skin) return;
+  if (els.detailDialog.open) els.detailDialog.close();
+
+  detailRenderToken += 1;
+  const renderToken = detailRenderToken;
+  detailSkin = skin;
+  els.detailName.textContent = skin.name;
+  const score = average(skin.ratings);
+  els.detailScore.textContent = skin.skipped ? "Пропущен" : formatScore(score);
+  renderDetailCategories(skin);
+  els.detailNote.value = skin.note || "";
+  fillPathFields(revealSkin(skin), els.detailPath, els.detailDir);
+
+  const hasFile = !!skin.url;
+  els.detailCanvas.hidden = !hasFile;
+  els.detailPlaceholder.hidden = hasFile;
+  if (!hasFile) {
+    els.detailPlaceholder.src = skin.thumb || thumbPlaceholder();
+  }
+
+  if (typeof els.detailDialog.showModal !== "function") {
+    showToast(hasFile ? "Подробный просмотр недоступен" : skin.name);
+    return;
+  }
+  els.detailDialog.showModal();
+  if (!hasFile) return;
+
+  try {
+    const handle = createAttachedViewer(els.detailCanvas, { controls: true, zoom: 0.85 });
+    if (renderToken !== detailRenderToken || detailSkin !== skin || !els.detailDialog.open) {
+      handle.dispose();
+      return;
+    }
+    detailHandle = handle;
+    await handle.load(skin);
+  } catch {
+    if (renderToken === detailRenderToken && detailSkin === skin) {
+      showToast("Не удалось открыть 3D-просмотр");
+    }
+  }
 }
 
 async function copyText(text) {
@@ -846,6 +935,18 @@ async function copyText(text) {
   showToast(ok ? "Скопировано в буфер обмена" : "Не удалось скопировать");
 }
 
+function handleDetailClose() {
+  if (detailSkin) detailSkin.note = els.detailNote.value;
+  detailRenderToken += 1;
+  if (detailHandle) {
+    detailHandle.dispose();
+    detailHandle = null;
+  }
+  detailSkin = null;
+  els.detailCanvas.hidden = false;
+  els.detailPlaceholder.hidden = true;
+}
+
 function backToRatings() {
   disposePodium();
   setScreen("rate");
@@ -854,6 +955,8 @@ function backToRatings() {
 }
 
 function newSession() {
+  if (els.detailDialog.open) els.detailDialog.close();
+  else if (detailHandle || detailSkin) handleDetailClose();
   disposePodium();
   disposeTiebreakViewers();
   disposeThumbEngine();
@@ -902,6 +1005,7 @@ function exportRatings() {
         relativePath: s.relativePath,
         model: s.model === "slim" ? "slim" : "wide",
         ratings,
+        note: s.note || "",
         skipped: !!s.skipped,
       };
     }),
@@ -957,6 +1061,7 @@ function parseSession(text) {
       model,
       ratings,
       thumb: null,
+      note: typeof raw.note === "string" ? raw.note : "",
       skipped,
       imported: true,
     };
@@ -1168,6 +1273,15 @@ function bindRate() {
   // Путь к файлу: копирование без диалогов выбора.
   els.btnCopyPath.addEventListener("click", () => copyText(els.revealPath.textContent.trim()));
   els.btnCopyDir.addEventListener("click", () => copyText(els.revealDir.textContent.trim()));
+  els.btnDetailCopyPath.addEventListener("click", () => copyText(els.detailPath.textContent.trim()));
+  els.btnDetailCopyDir.addEventListener("click", () => copyText(els.detailDir.textContent.trim()));
+  els.detailNote.addEventListener("input", () => {
+    if (detailSkin) detailSkin.note = els.detailNote.value;
+  });
+  els.detailDialog.addEventListener("close", handleDetailClose);
+  els.detailDialog.addEventListener("click", (event) => {
+    if (event.target === els.detailDialog) els.detailDialog.close();
+  });
 
   // Экспорт оценок в JSON.
   els.btnExport.addEventListener("click", exportRatings);

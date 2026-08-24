@@ -418,6 +418,59 @@
       </form>
     </dialog>
 
+    <dialog id="detail-dialog" class="detail-dialog">
+      <form method="dialog" class="detail-dialog-inner">
+        <div class="detail-head">
+          <div>
+            <p class="eyebrow">Детальный просмотр</p>
+            <h3 id="detail-name">—</h3>
+          </div>
+          <div class="detail-total">
+            <span>Итоговая оценка</span>
+            <strong id="detail-score">—/10</strong>
+          </div>
+        </div>
+
+        <div class="detail-layout">
+          <div class="detail-view">
+            <div class="detail-stage" id="detail-stage">
+              <canvas id="detail-canvas"></canvas>
+              <img id="detail-placeholder" class="detail-placeholder" alt="" hidden />
+            </div>
+            <p class="viewer-hint">ЛКМ — вращение · ПКМ — сдвиг · колесо — масштаб</p>
+          </div>
+
+          <aside class="detail-panel">
+            <section>
+              <h4 class="detail-section-title">Разбивка по категориям</h4>
+              <div id="detail-categories" class="detail-categories"></div>
+            </section>
+
+            <label class="detail-note" for="detail-note">
+              <span class="detail-section-title">Заметка</span>
+              <textarea id="detail-note" rows="5" maxlength="2000" placeholder="Добавьте заметку о скине…"></textarea>
+            </label>
+
+            <section class="detail-path-section">
+              <h4 class="detail-section-title">Расположение файла</h4>
+              <p class="path-label">Файл</p>
+              <p class="path-box" id="detail-path">—</p>
+              <p class="path-label">Папка</p>
+              <p class="path-box" id="detail-dir">—</p>
+              <div class="detail-path-actions">
+                <button type="button" class="btn btn-outlined" id="btn-detail-copy-dir">Копировать папку</button>
+                <button type="button" class="btn btn-outlined" id="btn-detail-copy-path">Копировать путь</button>
+              </div>
+            </section>
+          </aside>
+        </div>
+
+        <div class="detail-actions">
+          <button value="cancel" class="btn btn-filled">Закрыть</button>
+        </div>
+      </form>
+    </dialog>
+
     <input id="input-files" type="file" accept="image/png,.png" multiple hidden />
     <input id="input-folder" type="file" accept="image/png,.png" webkitdirectory directory multiple hidden />
     <input id="input-import" type="file" accept="application/json,.json" hidden />

@@ -789,6 +789,10 @@ p {
   color: var(--ink);
 }
 
+.board-actions {
+  flex-wrap: wrap;
+}
+
 .board-filters {
   flex: 0 0 auto;
   display: grid;
@@ -801,6 +805,11 @@ p {
   border-radius: var(--r-lg);
   background: var(--surface);
   box-shadow: var(--shadow-soft);
+}
+
+/* display: grid выше перекрывает UA-стиль [hidden], поэтому дублируем явно. */
+.board-filters[hidden] {
+  display: none !important;
 }
 
 .filter-field {
@@ -1272,7 +1281,8 @@ p {
 .detail-panel {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  justify-content: center;
+  min-height: 0;
   padding: 4px 2px 0;
 }
 
@@ -1289,7 +1299,7 @@ p {
 .detail-categories {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 10px;
 }
 
 .detail-category {
@@ -1297,7 +1307,7 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 14px 16px;
   border-radius: var(--r-sm);
   background: var(--surface);
 }
@@ -1323,63 +1333,8 @@ p {
   flex: 0 0 auto;
 }
 
-.detail-note {
-  display: block;
-}
-
-.detail-note textarea {
-  display: block;
-  width: 100%;
-  min-height: 112px;
-  resize: vertical;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
-  padding: 11px 12px;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-  line-height: 1.4;
-  outline: none;
-}
-
-.detail-note textarea::placeholder {
-  color: var(--muted);
-}
-
-.detail-note textarea:hover,
-.detail-note textarea:focus-visible {
-  border-color: rgba(232, 195, 106, 0.48);
-}
-
-.detail-note textarea:focus-visible {
-  box-shadow: 0 0 0 3px rgba(180, 192, 255, 0.16);
-}
-
-.detail-path-section {
-  min-width: 0;
-}
-
-.detail-path-section .path-label {
-  margin-top: 8px;
-}
-
-.detail-path-section .path-box {
-  margin: 4px 0 10px;
-  max-height: 74px;
-  overflow: auto;
-}
-
-.detail-path-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.detail-path-actions .btn {
-  flex: 1 1 130px;
-  min-height: 40px;
-  padding: 0 12px;
-  font-size: 0.82rem;
+.detail-category strong {
+  font-size: 1.05rem;
 }
 
 .detail-actions {
